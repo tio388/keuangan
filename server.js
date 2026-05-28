@@ -14,6 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/dokter', require('./routes/dokter'));
 app.use('/api/gaji', require('./routes/gaji'));
+app.use('/api/pendapatan', require('./routes/pendapatan'));
 
 app.use((req, res) => {
   if (req.accepts('html') && !req.path.startsWith('/api')) {

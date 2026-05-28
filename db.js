@@ -72,6 +72,26 @@ function initSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_gaji_nip ON gaji(nip);
     CREATE INDEX IF NOT EXISTS idx_gaji_bulan ON gaji(bulan);
+
+    CREATE TABLE IF NOT EXISTS slip_pendapatan (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nip TEXT NOT NULL,
+      nm_dokter TEXT NOT NULL DEFAULT '',
+      bulan TEXT NOT NULL,
+      tunjangan_jabatan REAL DEFAULT 0,
+      standby_kantor REAL DEFAULT 0,
+      remun_sesuai REAL DEFAULT 0,
+      fee_tim REAL DEFAULT 0,
+      tunjangan_kinerja REAL DEFAULT 0,
+      absensi REAL DEFAULT 0,
+      bpjs_kesehatan REAL DEFAULT 0,
+      ketenagakerjaan REAL DEFAULT 0,
+      pph21 REAL DEFAULT 0,
+      bumida REAL DEFAULT 0,
+      lain REAL DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now','localtime')),
+      UNIQUE(nip, bulan)
+    );
   `);
 }
 

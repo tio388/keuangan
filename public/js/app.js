@@ -104,6 +104,7 @@ function renderDashboard() {
         { id: 'upload', icon: '📤', label: 'Upload Gaji' },
         { id: 'slip-recap', icon: '📄', label: 'Slip Gaji' },
         { id: 'rekap-tindakan', icon: '📊', label: 'Rekap Data Tindakan' },
+        { id: 'pendapatan', icon: '💰', label: 'Input Pendapatan & Potongan' },
         { id: 'slip', icon: '📋', label: 'Data Gaji Dokter' }
       ]
     : [
@@ -165,6 +166,7 @@ function navigate(view) {
     case 'upload': renderUpload(main); break;
     case 'slip-recap': renderSlipRecap(main); break;
     case 'rekap-tindakan': renderRekapTindakan(main); break;
+    case 'pendapatan': renderPendapatan(main); break;
     case 'slip': renderSlip(main); break;
   }
 }
@@ -560,6 +562,56 @@ async function loadSlipRecap(main, nip) {
       grandTotal += tindakanTotal;
     }
 
+    let pendapatanHtml = '';
+    try {
+      const pdData = await api(`/pendapatan/dokter/${nip}`);
+      if (pdData && pdData.length > 0) {
+        let sumTunjangan = 0, sumPotongan = 0;
+        const pdRows = pdData.map(p => {
+          const t = Number(p.tunjangan_jabatan) + Number(p.standby_kantor) + Number(p.remun_sesuai) + Number(p.fee_tim) + Number(p.tunjangan_kinerja);
+          const pot = Number(p.absensi) + Number(p.bpjs_kesehatan) + Number(p.ketenagakerjaan) + Number(p.pph21) + Number(p.bumida) + Number(p.lain);
+          sumTunjangan += t; sumPotongan += pot;
+          return `<tr>
+            <td><strong>${sanitize(p.bulan)}</strong></td>
+            <td>Rp ${t.toLocaleString()}</td>
+            <td>Rp ${pot.toLocaleString()}</td>
+            <td class="value">Rp ${(t - pot).toLocaleString()}</td>
+          </tr>`;
+        }).join('');
+        const totalPendapatan = grandTotal + sumTunjangan - sumPotongan;
+        pendapatanHtml = `
+      </div>
+      <div class="card" style="margin-top:20px">
+        <h4 style="margin-bottom:16px;color:var(--slate-700)">Pendapatan & Potongan</h4>
+        <div class="table-container">
+          <table class="recap-table">
+            <thead>
+              <tr>
+                <th>Bulan</th>
+                <th>Total Tunjangan</th>
+                <th>Total Potongan</th>
+                <th>Bersih</th>
+              </tr>
+            </thead>
+            <tbody>${pdRows}</tbody>
+            <tfoot>
+              <tr>
+                <td><strong>Subtotal Tunjangan/Potongan</strong></td>
+                <td><strong>Rp ${sumTunjangan.toLocaleString()}</strong></td>
+                <td><strong>Rp ${sumPotongan.toLocaleString()}</strong></td>
+                <td class="value"><strong>Rp ${(sumTunjangan - sumPotongan).toLocaleString()}</strong></td>
+              </tr>
+              <tr style="background:var(--emerald-50)">
+                <td colspan="3"><strong>PENGHASILAN BERSIH (Total Tindakan + Tunjangan - Potongan)</strong></td>
+                <td class="value" style="font-size:1.1rem"><strong>Rp ${totalPendapatan.toLocaleString()}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>`;
+      }
+    } catch (e) { /* pendapatan data not available */ }
+
     container.innerHTML = `
       <div class="card">
         <div class="table-container">
@@ -586,6 +638,7 @@ async function loadSlipRecap(main, nip) {
           </table>
         </div>
       </div>
+      ${pendapatanHtml}
     `;
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Gagal memuat data</h3><p>${err.message}</p></div>`;
@@ -727,6 +780,142 @@ async function loadRekapTindakan(main, nipFilter, bulanFilter) {
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Gagal memuat data</h3><p>${err.message}</p></div>`;
   }
+}
+
+/* ─── PENDAPATAN & POTONGAN ─── */
+function renderPendapatan(main) {
+  main.innerHTML = `
+    <div class="page-header fade-in">
+      <h2>Input Pendapatan & Potongan</h2>
+      <p>Atur tunjangan dan potongan per dokter per bulan</p>
+    </div>
+    <div class="card fade-in fade-in-delay-1">
+      <form id="formPendapatan">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+          <div style="flex:1;min-width:200px">
+            <label for="fpDokter">Dokter</label>
+            <select id="fpDokter" required></select>
+          </div>
+          <div style="flex:1;min-width:160px">
+            <label for="fpBulan">Bulan</label>
+            <select id="fpBulan" required></select>
+          </div>
+        </div>
+
+        <h4 style="margin-bottom:12px;color:var(--slate-700)">Tunjangan</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
+          <div class="form-group"><label>Tunjangan Jabatan</label><input type="number" id="fpTunjab" step="1" value="0"></div>
+          <div class="form-group"><label>Standby Kantor</label><input type="number" id="fpStandby" step="1" value="0"></div>
+          <div class="form-group"><label>Remun Sesuai</label><input type="number" id="fpRemun" step="1" value="0"></div>
+          <div class="form-group"><label>Fee TIM</label><input type="number" id="fpFeeTim" step="1" value="0"></div>
+          <div class="form-group"><label>Tunjangan Kinerja</label><input type="number" id="fpTukin" step="1" value="0"></div>
+        </div>
+
+        <h4 style="margin-bottom:12px;color:var(--slate-700)">Potongan</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
+          <div class="form-group"><label>Potongan Absensi</label><input type="number" id="fpAbsensi" step="1" value="0"></div>
+          <div class="form-group"><label>BPJS Kesehatan</label><input type="number" id="fpBpjs" step="1" value="0"></div>
+          <div class="form-group"><label>Ketenagakerjaan</label><input type="number" id="fpNaker" step="1" value="0"></div>
+          <div class="form-group"><label>PPH 21</label><input type="number" id="fpPph" step="1" value="0"></div>
+          <div class="form-group"><label>Asuransi BUMIDA</label><input type="number" id="fpBumida" step="1" value="0"></div>
+          <div class="form-group"><label>Potongan Lain</label><input type="number" id="fpLain" step="1" value="0"></div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Simpan</button>
+        <span id="fpTotalInfo" style="margin-left:16px;font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)"></span>
+      </form>
+    </div>
+  `;
+
+  const selDokter = main.querySelector('#fpDokter');
+  const selBulan = main.querySelector('#fpBulan');
+
+  Promise.all([
+    api('/dokter').then(list => {
+      list.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.nip;
+        opt.textContent = `${d.nama} (${d.nip})`;
+        selDokter.appendChild(opt);
+      });
+    }),
+    api('/gaji/periode').then(periodes => {
+      periodes.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        selBulan.appendChild(opt);
+      });
+    })
+  ]).then(() => {
+    const loadData = () => {
+      const nip = selDokter.value;
+      const bulan = selBulan.value;
+      if (nip && bulan) {
+        api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`).then(data => {
+          if (data) {
+            main.querySelector('#fpTunjab').value = data.tunjangan_jabatan || 0;
+            main.querySelector('#fpStandby').value = data.standby_kantor || 0;
+            main.querySelector('#fpRemun').value = data.remun_sesuai || 0;
+            main.querySelector('#fpFeeTim').value = data.fee_tim || 0;
+            main.querySelector('#fpTukin').value = data.tunjangan_kinerja || 0;
+            main.querySelector('#fpAbsensi').value = data.absensi || 0;
+            main.querySelector('#fpBpjs').value = data.bpjs_kesehatan || 0;
+            main.querySelector('#fpNaker').value = data.ketenagakerjaan || 0;
+            main.querySelector('#fpPph').value = data.pph21 || 0;
+            main.querySelector('#fpBumida').value = data.bumida || 0;
+            main.querySelector('#fpLain').value = data.lain || 0;
+          }
+          updateTotal(main);
+        }).catch(() => {});
+      }
+    };
+    selDokter.addEventListener('change', loadData);
+    selBulan.addEventListener('change', loadData);
+    loadData();
+  });
+
+  function updateTotal(m) {
+    const g = id => Number(m.querySelector(id).value) || 0;
+    const tunjangan = g('#fpTunjab') + g('#fpStandby') + g('#fpRemun') + g('#fpFeeTim') + g('#fpTukin');
+    const potongan = g('#fpAbsensi') + g('#fpBpjs') + g('#fpNaker') + g('#fpPph') + g('#fpBumida') + g('#fpLain');
+    m.querySelector('#fpTotalInfo').textContent = `Tunjangan: Rp ${tunjangan.toLocaleString()} | Potongan: Rp ${potongan.toLocaleString()} | Bersih: Rp ${(tunjangan - potongan).toLocaleString()}`;
+  }
+
+  main.querySelectorAll('#formPendapatan input[type="number"]').forEach(inp => {
+    inp.addEventListener('input', () => updateTotal(main));
+  });
+
+  main.querySelector('#formPendapatan').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nipl = selDokter.value;
+    const bulan = selBulan.value;
+    if (!nipl || !bulan) return notify('Pilih dokter dan bulan', 'error');
+    const dokter = selDokter.options[selDokter.selectedIndex].text;
+    const payload = {
+      nip: nipl,
+      nm_dokter: dokter.split(' (')[0],
+      bulan,
+      tunjangan_jabatan: main.querySelector('#fpTunjab').value,
+      standby_kantor: main.querySelector('#fpStandby').value,
+      remun_sesuai: main.querySelector('#fpRemun').value,
+      fee_tim: main.querySelector('#fpFeeTim').value,
+      tunjangan_kinerja: main.querySelector('#fpTukin').value,
+      absensi: main.querySelector('#fpAbsensi').value,
+      bpjs_kesehatan: main.querySelector('#fpBpjs').value,
+      ketenagakerjaan: main.querySelector('#fpNaker').value,
+      pph21: main.querySelector('#fpPph').value,
+      bumida: main.querySelector('#fpBumida').value,
+      lain: main.querySelector('#fpLain').value,
+    };
+    const btn = e.target.querySelector('.btn');
+    btn.disabled = true; btn.textContent = 'Menyimpan...';
+    try {
+      await api('/pendapatan', { method: 'POST', body: JSON.stringify(payload) });
+      notify('Data pendapatan & potongan berhasil disimpan', 'success');
+    } catch (err) { notify(err.message, 'error'); }
+    btn.disabled = false; btn.textContent = 'Simpan';
+  });
 }
 
 /* ─── INIT ─── */
