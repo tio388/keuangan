@@ -518,34 +518,39 @@ async function loadSlipRecap(main, nip) {
     const groups = {};
     for (const d of filtered) {
       const tKey = d.nm_tindakan;
-      if (!groups[tKey]) groups[tKey] = {};
+      if (!groups[tKey]) groups[tKey] = { polikliniks: new Set() };
       const payment = String(d.pembayaran || '').toLowerCase().includes('bpjs') ? 'BPJS KESEHATAN' : 'UMUM';
       if (!groups[tKey][payment]) groups[tKey][payment] = { tarif: Number(d.tarif), jumlah: 0 };
       groups[tKey][payment].jumlah++;
+      if (d.poliklinik) groups[tKey].polikliniks.add(d.poliklinik);
     }
 
     let grandTotal = 0;
     let no = 0;
     let rows = '';
 
-    for (const [tindakan, payments] of Object.entries(groups)) {
+    for (const [tindakan, grp] of Object.entries(groups)) {
       no++;
       let tindakanTotal = 0;
+      const perawatan = [...grp.polikliniks].filter(Boolean).join(', ') || '-';
 
       rows += `<tr class="tindakan-title">
         <td>${no}</td>
         <td><strong>${sanitize(tindakan)}</strong></td>
+        <td>${sanitize(perawatan)}</td>
         <td></td>
         <td></td>
         <td></td>
       </tr>`;
 
-      for (const [payment, info] of Object.entries(payments)) {
+      for (const [payment, info] of Object.entries(grp)) {
+        if (payment === 'polikliniks') continue;
         const subtotal = info.tarif * info.jumlah;
         tindakanTotal += subtotal;
         rows += `<tr class="tindakan-sub">
           <td></td>
           <td style="padding-left:32px">${sanitize(payment)}</td>
+          <td></td>
           <td>Rp ${info.tarif.toLocaleString()}</td>
           <td>${info.jumlah}</td>
           <td class="value">Rp ${subtotal.toLocaleString()}</td>
@@ -563,6 +568,7 @@ async function loadSlipRecap(main, nip) {
               <tr>
                 <th>No</th>
                 <th>Nama Tindakan</th>
+                <th>Jenis Perawatan</th>
                 <th>Fee Dokter</th>
                 <th>Jumlah Tindakan</th>
                 <th>Subtotal</th>
@@ -573,7 +579,7 @@ async function loadSlipRecap(main, nip) {
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="4"><strong>Total Keseluruhan</strong></td>
+                <td colspan="5"><strong>Total Keseluruhan</strong></td>
                 <td class="value"><strong>Rp ${grandTotal.toLocaleString()}</strong></td>
               </tr>
             </tfoot>
