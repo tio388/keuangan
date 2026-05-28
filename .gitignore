@@ -1,0 +1,5 @@
+node_modules/
+uploads/
+keuangan.db
+.env
+.env.local

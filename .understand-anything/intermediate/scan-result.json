@@ -1,0 +1,140 @@
+﻿{
+  "projectName": "keuangan",
+  "projectDescription": "Sistem Slip Gaji Dokter — Node.js/Express 5 SPA with SQLite, JWT auth, vanilla JS frontend",
+  "languages": ["javascript", "html", "css", "json", "sql", "markdown"],
+  "frameworks": ["Express 5", "better-sqlite3"],
+  "entryPoint": "server.js",
+  "complexity": "simple",
+  "filteredByIgnore": 0,
+  "files": [
+    {
+      "path": ".env",
+      "language": "plaintext",
+      "sizeLines": 1,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".gitignore",
+      "language": "ignore",
+      "sizeLines": 4,
+      "fileCategory": "config"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "ignore",
+      "sizeLines": 19,
+      "fileCategory": "config"
+    },
+    {
+      "path": "AGENTS.md",
+      "language": "markdown",
+      "sizeLines": 38,
+      "fileCategory": "config"
+    },
+    {
+      "path": "db.js",
+      "language": "javascript",
+      "sizeLines": 86,
+      "fileCategory": "code"
+    },
+    {
+      "path": "keuangan.db",
+      "language": "sql",
+      "sizeLines": 1,
+      "fileCategory": "data"
+    },
+    {
+      "path": "keuangan.db-shm",
+      "language": "sql",
+      "sizeLines": 1,
+      "fileCategory": "data"
+    },
+    {
+      "path": "keuangan.db-wal",
+      "language": "sql",
+      "sizeLines": 1,
+      "fileCategory": "data"
+    },
+    {
+      "path": "middleware/auth.js",
+      "language": "javascript",
+      "sizeLines": 31,
+      "fileCategory": "code"
+    },
+    {
+      "path": "package.json",
+      "language": "json",
+      "sizeLines": 24,
+      "fileCategory": "config"
+    },
+    {
+      "path": "package-lock.json",
+      "language": "json",
+      "sizeLines": 1646,
+      "fileCategory": "config"
+    },
+    {
+      "path": "public/css/style.css",
+      "language": "css",
+      "sizeLines": 506,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "public/index.html",
+      "language": "html",
+      "sizeLines": 16,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "public/js/app.js",
+      "language": "javascript",
+      "sizeLines": 572,
+      "fileCategory": "code"
+    },
+    {
+      "path": "routes/auth.js",
+      "language": "javascript",
+      "sizeLines": 38,
+      "fileCategory": "code"
+    },
+    {
+      "path": "routes/dokter.js",
+      "language": "javascript",
+      "sizeLines": 42,
+      "fileCategory": "code"
+    },
+    {
+      "path": "routes/gaji.js",
+      "language": "javascript",
+      "sizeLines": 131,
+      "fileCategory": "code"
+    },
+    {
+      "path": "server.err",
+      "language": "plaintext",
+      "sizeLines": 0,
+      "fileCategory": "infra"
+    },
+    {
+      "path": "server.js",
+      "language": "javascript",
+      "sizeLines": 29,
+      "fileCategory": "code"
+    },
+    {
+      "path": "server.log",
+      "language": "plaintext",
+      "sizeLines": 2,
+      "fileCategory": "infra"
+    }
+  ],
+  "importMap": {
+    "db.js": [],
+    "middleware/auth.js": [],
+    "public/js/app.js": [],
+    "routes/auth.js": ["db.js", "middleware/auth.js"],
+    "routes/dokter.js": ["db.js", "middleware/auth.js"],
+    "routes/gaji.js": ["db.js", "middleware/auth.js"],
+    "server.js": ["db.js", "routes/auth.js", "routes/dokter.js", "routes/gaji.js"]
+  }
+}
