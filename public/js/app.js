@@ -585,6 +585,7 @@ async function loadSlipRecap(main, nip, bulan) {
       grandTotal += tindakanTotal;
     }
 
+    let summaryCards = '';
     let pendapatanHtml = '';
     if (bulan) {
       try {
@@ -593,27 +594,27 @@ async function loadSlipRecap(main, nip, bulan) {
           const t = Number(pd.tunjangan_jabatan) + Number(pd.standby_kantor) + Number(pd.remun_sesuai) + Number(pd.fee_tim) + Number(pd.tunjangan_kinerja);
           const pot = Number(pd.absensi) + Number(pd.bpjs_kesehatan) + Number(pd.ketenagakerjaan) + Number(pd.pph21) + Number(pd.bumida) + Number(pd.lain);
           const totalPendapatan = grandTotal + t - pot;
-          pendapatanHtml = `
-        </div>
-        <div class="card" style="margin-top:20px">
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px">
-            <div style="background:var(--emerald-50);padding:16px;border-radius:var(--radius-sm)">
-              <div style="font-size:.8rem;color:var(--slate-500)">Total Tindakan</div>
-              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--emerald-700)">Rp ${grandTotal.toLocaleString()}</div>
-            </div>
-            <div style="background:var(--gold-100);padding:16px;border-radius:var(--radius-sm)">
-              <div style="font-size:.8rem;color:var(--slate-500)">Total Tunjangan</div>
-              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--gold-600)">Rp ${t.toLocaleString()}</div>
-            </div>
-            <div style="background:#fef2f2;padding:16px;border-radius:var(--radius-sm)">
-              <div style="font-size:.8rem;color:var(--slate-500)">Total Potongan</div>
-              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:#dc2626">Rp ${pot.toLocaleString()}</div>
-            </div>
-            <div style="background:var(--emerald-600);padding:16px;border-radius:var(--radius-sm);color:#fff">
-              <div style="font-size:.8rem;opacity:.8">Penghasilan Bersih</div>
-              <div style="font-family:var(--font-heading);font-weight:800;font-size:1.2rem">Rp ${totalPendapatan.toLocaleString()}</div>
-            </div>
+          summaryCards = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px">
+          <div style="background:var(--emerald-50);padding:16px;border-radius:var(--radius-sm)">
+            <div style="font-size:.8rem;color:var(--slate-500)">Total Tindakan</div>
+            <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--emerald-700)">Rp ${grandTotal.toLocaleString()}</div>
           </div>
+          <div style="background:var(--gold-100);padding:16px;border-radius:var(--radius-sm)">
+            <div style="font-size:.8rem;color:var(--slate-500)">Total Tunjangan</div>
+            <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--gold-600)">Rp ${t.toLocaleString()}</div>
+          </div>
+          <div style="background:#fef2f2;padding:16px;border-radius:var(--radius-sm)">
+            <div style="font-size:.8rem;color:var(--slate-500)">Total Potongan</div>
+            <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:#dc2626">Rp ${pot.toLocaleString()}</div>
+          </div>
+          <div style="background:var(--emerald-600);padding:16px;border-radius:var(--radius-sm);color:#fff">
+            <div style="font-size:.8rem;opacity:.8">Penghasilan Bersih</div>
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:1.2rem">Rp ${totalPendapatan.toLocaleString()}</div>
+          </div>
+        </div>`;
+          pendapatanHtml = `
+        <div class="card" style="margin-top:20px">
           <div class="table-container">
             <table class="recap-table">
               <thead>
@@ -646,6 +647,7 @@ async function loadSlipRecap(main, nip, bulan) {
     }
 
     container.innerHTML = `
+      ${summaryCards}
       <div class="card">
         <div class="table-container">
           <table class="recap-table">
