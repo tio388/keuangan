@@ -470,55 +470,78 @@ function renderSlipRecap(main) {
       <h2>Slip Gaji</h2>
       <p>Rekap tindakan dokter berdasarkan tarif</p>
     </div>
-    ${isAdmin ? `
     <div class="filter-bar fade-in fade-in-delay-1">
-      <select id="recapDokter" style="max-width:300px">
-        <option value="">-- Pilih Dokter --</option>
+      ${isAdmin ? '<select id="recapDokter" style="max-width:300px"><option value="">-- Pilih Dokter --</option></select>' : ''}
+      <select id="recapBulan" style="max-width:160px">
+        <option value="">-- Semua Bulan --</option>
       </select>
     </div>
-    ` : ''}
     <div class="fade-in fade-in-delay-1" id="recapContainer">
       <div class="empty-state"><div class="icon">📄</div><h3>${isAdmin ? 'Pilih dokter untuk melihat rekap' : 'Memuat data...'}</h3></div>
     </div>
   `;
 
+  const loadBulan = () => api('/gaji/periode').then(periodes => {
+    const sel = main.querySelector('#recapBulan');
+    periodes.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      sel.appendChild(opt);
+    });
+  });
+
+  const getFilters = () => ({
+    nip: main.querySelector('#recapDokter')?.value || state.user.nip,
+    bulan: main.querySelector('#recapBulan').value,
+  });
+
+  const onFilter = () => {
+    const f = getFilters();
+    if (isAdmin && !f.nip) {
+      main.querySelector('#recapContainer').innerHTML = '<div class="empty-state"><div class="icon">📄</div><h3>Pilih dokter untuk melihat rekap</h3></div>';
+      return;
+    }
+    loadSlipRecap(main, f.nip, f.bulan);
+  };
+
   if (isAdmin) {
-    loadDokterList(main);
+    loadBulan().then(() => {
+      api('/dokter').then(list => {
+        const sel = main.querySelector('#recapDokter');
+        list.forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.nip;
+          opt.textContent = `${d.nama} (${d.nip})`;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener('change', onFilter);
+        main.querySelector('#recapBulan').addEventListener('change', onFilter);
+      });
+    });
   } else {
-    loadSlipRecap(main, state.user.nip);
+    loadBulan().then(() => {
+      main.querySelector('#recapBulan').addEventListener('change', onFilter);
+      loadSlipRecap(main, state.user.nip, '');
+    });
   }
 }
 
-async function loadDokterList(main) {
-  try {
-    const list = await api('/dokter');
-    const select = main.querySelector('#recapDokter');
-    list.forEach(d => {
-      const opt = document.createElement('option');
-      opt.value = d.nip;
-      opt.textContent = `${d.nama} (${d.nip})`;
-      select.appendChild(opt);
-    });
-    select.addEventListener('change', () => {
-      if (select.value) loadSlipRecap(main, select.value);
-      else main.querySelector('#recapContainer').innerHTML = '<div class="empty-state"><div class="icon">📄</div><h3>Pilih dokter untuk melihat rekap</h3></div>';
-    });
-  } catch (err) { notify(err.message, 'error'); }
-}
-
-async function loadSlipRecap(main, nip) {
+async function loadSlipRecap(main, nip, bulan) {
   const container = main.querySelector('#recapContainer');
   try {
-    const data = await api('/gaji/slip');
-    const filtered = data.filter(d => d.nip === nip && d.nm_tindakan && Number(d.tarif) > 0);
+    let data = await api('/gaji/slip');
+    data = data.filter(d => d.nip === nip);
+    if (bulan) data = data.filter(d => d.bulan === bulan);
+    data = data.filter(d => d.nm_tindakan && Number(d.tarif) > 0);
 
-    if (filtered.length === 0) {
+    if (data.length === 0) {
       container.innerHTML = '<div class="empty-state"><div class="icon">📄</div><h3>Belum ada data tindakan</h3></div>';
       return;
     }
 
     const groups = {};
-    for (const d of filtered) {
+    for (const d of data) {
       const tKey = d.nm_tindakan;
       if (!groups[tKey]) groups[tKey] = { polikliniks: new Set() };
       const payment = String(d.pembayaran || '').toLowerCase().includes('bpjs') ? 'BPJS KESEHATAN' : 'UMUM';
@@ -563,54 +586,64 @@ async function loadSlipRecap(main, nip) {
     }
 
     let pendapatanHtml = '';
-    try {
-      const pdData = await api(`/pendapatan/dokter/${nip}`);
-      if (pdData && pdData.length > 0) {
-        let sumTunjangan = 0, sumPotongan = 0;
-        const pdRows = pdData.map(p => {
-          const t = Number(p.tunjangan_jabatan) + Number(p.standby_kantor) + Number(p.remun_sesuai) + Number(p.fee_tim) + Number(p.tunjangan_kinerja);
-          const pot = Number(p.absensi) + Number(p.bpjs_kesehatan) + Number(p.ketenagakerjaan) + Number(p.pph21) + Number(p.bumida) + Number(p.lain);
-          sumTunjangan += t; sumPotongan += pot;
-          return `<tr>
-            <td><strong>${sanitize(p.bulan)}</strong></td>
-            <td>Rp ${t.toLocaleString()}</td>
-            <td>Rp ${pot.toLocaleString()}</td>
-            <td class="value">Rp ${(t - pot).toLocaleString()}</td>
-          </tr>`;
-        }).join('');
-        const totalPendapatan = grandTotal + sumTunjangan - sumPotongan;
-        pendapatanHtml = `
-      </div>
-      <div class="card" style="margin-top:20px">
-        <h4 style="margin-bottom:16px;color:var(--slate-700)">Pendapatan & Potongan</h4>
-        <div class="table-container">
-          <table class="recap-table">
-            <thead>
-              <tr>
-                <th>Bulan</th>
-                <th>Total Tunjangan</th>
-                <th>Total Potongan</th>
-                <th>Bersih</th>
-              </tr>
-            </thead>
-            <tbody>${pdRows}</tbody>
-            <tfoot>
-              <tr>
-                <td><strong>Subtotal Tunjangan/Potongan</strong></td>
-                <td><strong>Rp ${sumTunjangan.toLocaleString()}</strong></td>
-                <td><strong>Rp ${sumPotongan.toLocaleString()}</strong></td>
-                <td class="value"><strong>Rp ${(sumTunjangan - sumPotongan).toLocaleString()}</strong></td>
-              </tr>
-              <tr style="background:var(--emerald-50)">
-                <td colspan="3"><strong>PENGHASILAN BERSIH (Total Tindakan + Tunjangan - Potongan)</strong></td>
-                <td class="value" style="font-size:1.1rem"><strong>Rp ${totalPendapatan.toLocaleString()}</strong></td>
-              </tr>
-            </tfoot>
-          </table>
+    if (bulan) {
+      try {
+        const pd = await api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`);
+        if (pd) {
+          const t = Number(pd.tunjangan_jabatan) + Number(pd.standby_kantor) + Number(pd.remun_sesuai) + Number(pd.fee_tim) + Number(pd.tunjangan_kinerja);
+          const pot = Number(pd.absensi) + Number(pd.bpjs_kesehatan) + Number(pd.ketenagakerjaan) + Number(pd.pph21) + Number(pd.bumida) + Number(pd.lain);
+          const totalPendapatan = grandTotal + t - pot;
+          pendapatanHtml = `
         </div>
-      </div>`;
-      }
-    } catch (e) { /* pendapatan data not available */ }
+        <div class="card" style="margin-top:20px">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px">
+            <div style="background:var(--emerald-50);padding:16px;border-radius:var(--radius-sm)">
+              <div style="font-size:.8rem;color:var(--slate-500)">Total Tindakan</div>
+              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--emerald-700)">Rp ${grandTotal.toLocaleString()}</div>
+            </div>
+            <div style="background:var(--gold-100);padding:16px;border-radius:var(--radius-sm)">
+              <div style="font-size:.8rem;color:var(--slate-500)">Total Tunjangan</div>
+              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:var(--gold-600)">Rp ${t.toLocaleString()}</div>
+            </div>
+            <div style="background:#fef2f2;padding:16px;border-radius:var(--radius-sm)">
+              <div style="font-size:.8rem;color:var(--slate-500)">Total Potongan</div>
+              <div style="font-family:var(--font-heading);font-weight:700;font-size:1.2rem;color:#dc2626">Rp ${pot.toLocaleString()}</div>
+            </div>
+            <div style="background:var(--emerald-600);padding:16px;border-radius:var(--radius-sm);color:#fff">
+              <div style="font-size:.8rem;opacity:.8">Penghasilan Bersih</div>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:1.2rem">Rp ${totalPendapatan.toLocaleString()}</div>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="recap-table">
+              <thead>
+                <tr><th>Jenis</th><th>Item</th><th style="text-align:right">Nominal</th></tr>
+              </thead>
+              <tbody>
+                <tr><td rowspan="5" style="font-weight:600;vertical-align:middle">Tunjangan</td><td>Tunjangan Jabatan</td><td style="text-align:right">Rp ${Number(pd.tunjangan_jabatan).toLocaleString()}</td></tr>
+                <tr><td>Standby Kantor</td><td style="text-align:right">Rp ${Number(pd.standby_kantor).toLocaleString()}</td></tr>
+                <tr><td>Remun Sesuai</td><td style="text-align:right">Rp ${Number(pd.remun_sesuai).toLocaleString()}</td></tr>
+                <tr><td>Fee TIM</td><td style="text-align:right">Rp ${Number(pd.fee_tim).toLocaleString()}</td></tr>
+                <tr><td>Tunjangan Kinerja</td><td style="text-align:right">Rp ${Number(pd.tunjangan_kinerja).toLocaleString()}</td></tr>
+                <tr style="background:var(--slate-50)"><td></td><td style="font-weight:600">Subtotal Tunjangan</td><td style="text-align:right;font-weight:600">Rp ${t.toLocaleString()}</td></tr>
+                <tr><td rowspan="6" style="font-weight:600;vertical-align:middle">Potongan</td><td>Potongan Absensi</td><td style="text-align:right">Rp ${Number(pd.absensi).toLocaleString()}</td></tr>
+                <tr><td>BPJS Kesehatan</td><td style="text-align:right">Rp ${Number(pd.bpjs_kesehatan).toLocaleString()}</td></tr>
+                <tr><td>Ketenagakerjaan</td><td style="text-align:right">Rp ${Number(pd.ketenagakerjaan).toLocaleString()}</td></tr>
+                <tr><td>PPH 21</td><td style="text-align:right">Rp ${Number(pd.pph21).toLocaleString()}</td></tr>
+                <tr><td>Asuransi BUMIDA</td><td style="text-align:right">Rp ${Number(pd.bumida).toLocaleString()}</td></tr>
+                <tr><td>Potongan Lain</td><td style="text-align:right">Rp ${Number(pd.lain).toLocaleString()}</td></tr>
+                <tr style="background:var(--slate-50)"><td></td><td style="font-weight:600">Subtotal Potongan</td><td style="text-align:right;font-weight:600">Rp ${pot.toLocaleString()}</td></tr>
+                <tr style="background:var(--emerald-600);color:#fff">
+                  <td colspan="2" style="font-weight:800;font-family:var(--font-heading)">PENGHASILAN BERSIH</td>
+                  <td style="text-align:right;font-weight:800;font-family:var(--font-heading);font-size:1.1rem">Rp ${totalPendapatan.toLocaleString()}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+        }
+      } catch (e) { /* no pendapatan data for this month */ }
+    }
 
     container.innerHTML = `
       <div class="card">
@@ -631,7 +664,7 @@ async function loadSlipRecap(main, nip) {
             </tbody>
             <tfoot>
               <tr>
-                <td colspan="5"><strong>Total Keseluruhan</strong></td>
+                <td colspan="5"><strong>${bulan ? sanitize(bulan) : 'Total Keseluruhan'}</strong></td>
                 <td class="value"><strong>Rp ${grandTotal.toLocaleString()}</strong></td>
               </tr>
             </tfoot>
