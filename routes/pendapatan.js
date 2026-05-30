@@ -47,7 +47,7 @@ router.post('/', adminOnly, (req, res) => {
         bumida = excluded.bumida,
         lain = excluded.lain,
         updated_at = datetime('now','localtime')
-    `).run(nip, nm_dokter || '', Number(tunjangan_jabatan) || 0, Number(standby_kantor) || 0, Number(remun_sesuai) || 0, Number(fee_tim) || 0, Number(tunjangan_kinerja) || 0, Number(absensi) || 0, Number(bpjs_kesehatan) || 0, Number(ketenagakerjaan) || 0, Number(pph21) || 0, Number(bumida) || 0, Number(lain) || 0);
+    `).run(nip, nm_dokter || '', bulan, Number(tunjangan_jabatan) || 0, Number(standby_kantor) || 0, Number(remun_sesuai) || 0, Number(fee_tim) || 0, Number(tunjangan_kinerja) || 0, Number(absensi) || 0, Number(bpjs_kesehatan) || 0, Number(ketenagakerjaan) || 0, Number(pph21) || 0, Number(bumida) || 0, Number(lain) || 0);
     res.json({ message: 'Data pendapatan & potongan berhasil disimpan' });
   } catch (err) {
     console.error('[pendapatan]', err);
