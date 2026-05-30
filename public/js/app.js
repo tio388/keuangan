@@ -312,6 +312,11 @@ function renderUpload(main) {
         </div>
         <button type="submit" class="btn btn-primary" style="margin-top:20px;width:100%" id="btnUpload">Upload & Proses</button>
       </form>
+      <div style="margin-top:20px;padding:16px;background:var(--slate-50);border-radius:var(--radius-sm);font-size:.85rem;color:var(--slate-600)">
+        <strong style="color:var(--slate-800)">Format kolom yang didukung:</strong><br>
+        <code>nip, nm_dokter, bulan, tanggal, poliklinik, pasien, Ruangan, pembayaran, tindakan, tarif, OP_NON, Jumlah, BHP, JM_dokter</code>
+        <button type="button" class="btn btn-outline" style="margin-top:12px" id="btnDownloadTemplateGaji">Download Contoh CSV</button>
+      </div>
     </div>
   `;
 
@@ -333,6 +338,18 @@ function renderUpload(main) {
   });
   input.addEventListener('change', () => {
     if (input.files.length) handleFile(input.files[0], fileInfo, fileName);
+  });
+
+  main.querySelector('#btnDownloadTemplateGaji').addEventListener('click', () => {
+    const cols = ['nip','nm_dokter','bulan','tanggal','poliklinik','pasien','Ruangan','pembayaran','tindakan','tarif','OP_NON','Jumlah','BHP','JM_dokter'];
+    const sample = ['123456','Dr. Contoh','Januari 2026','01/01/2026','Poli Umum','10','Ruang 1','BPJS','Tindakan A','150000','OP','500000','50000','250000'];
+    const csv = cols.join(',') + '\n' + sample.join(',') + '\n';
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'template_gaji.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
 
   main.querySelector('#uploadForm').addEventListener('submit', async (e) => {
@@ -373,33 +390,102 @@ function renderSlip(main) {
       <p>${state.user.role === 'admin' ? 'Seluruh data gaji dokter' : 'Data gaji Anda'}</p>
     </div>
     <div class="filter-bar fade-in fade-in-delay-1">
-      <input type="text" id="filterNama" placeholder="Cari nama dokter..." style="max-width:220px">
+      ${state.user.role === 'admin' ? `
+      <div class="searchable-select" style="max-width:300px;flex:1">
+        <input type="text" id="filterNama" placeholder="Ketik nama dokter..." autocomplete="off">
+        <div class="searchable-dropdown" id="filterNamaDropdown"></div>
+      </div>` : ''}
       <select id="filterBulan" style="max-width:160px">
         <option value="">Semua Bulan</option>
       </select>
-      <select id="filterTindakan" style="max-width:180px">
-        <option value="">Semua Tindakan</option>
-        <option value="ada">Ada Tindakan (&gt; 0)</option>
-        <option value="tidak">Tidak Ada Tindakan (= 0)</option>
-      </select>
+      <div class="searchable-select" style="max-width:300px;flex:1">
+        <input type="text" id="filterTindakan" placeholder="Ketik tindakan..." autocomplete="off">
+        <div class="searchable-dropdown" id="filterTindakanDropdown"></div>
+      </div>
     </div>
     <div class="slip-grid fade-in fade-in-delay-2" id="slipGrid">
       <div class="empty-state"><div class="icon">📋</div><h3>Memuat data...</h3></div>
     </div>
   `;
 
-  const filterNama = main.querySelector('#filterNama');
   const filterBulan = main.querySelector('#filterBulan');
-  const filterTindakan = main.querySelector('#filterTindakan');
+  window._tindakanFilter = '';
 
-  loadFilterBulan(main);
+  Promise.all([
+    loadFilterBulan(main),
+    loadFilterTindakan(main),
+    state.user.role === 'admin' ? loadFilterDokter(main) : Promise.resolve()
+  ]).then(() => {
+    filterBulan.addEventListener('change', () => {
+      loadSlipData(main, window._namaFilter || '', filterBulan.value, window._tindakanFilter || '');
+    });
+    loadSlipData(main, '', '', '');
+  });
+}
 
-  const applyFilters = () => loadSlipData(main, filterNama.value, filterBulan.value, filterTindakan.value);
-  filterNama.addEventListener('input', applyFilters);
-  filterBulan.addEventListener('change', applyFilters);
-  filterTindakan.addEventListener('change', applyFilters);
+function initSearchableSelect(inputId, dropdownId, items, onSelect) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  if (!input || !dropdown) return;
+  let selectedValue = '';
 
-  loadSlipData(main, '', '', '');
+  const render = (filter) => {
+    const filtered = items.filter(item => !filter || item.label.toLowerCase().includes(filter.toLowerCase()));
+    dropdown.innerHTML = filtered.map((item, i) =>
+      `<div class="s-item${item.value === selectedValue ? ' active' : ''}" data-value="${item.value}">${item.label}</div>`
+    ).join('');
+    dropdown.classList.toggle('open', filtered.length > 0);
+
+    dropdown.querySelectorAll('.s-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectedValue = el.dataset.value;
+        input.value = items.find(i => i.value === selectedValue)?.label || '';
+        dropdown.classList.remove('open');
+        onSelect(selectedValue);
+      });
+    });
+  };
+
+  input.addEventListener('focus', () => render(input.value));
+  input.addEventListener('input', () => {
+    selectedValue = '';
+    render(input.value);
+  });
+  input.addEventListener('blur', () => setTimeout(() => dropdown.classList.remove('open'), 200));
+
+  document.addEventListener('click', (e) => {
+    if (!input.closest('.searchable-select')?.contains(e.target)) {
+      dropdown.classList.remove('open');
+    }
+  });
+
+  return { setValue: (v) => { selectedValue = v; input.value = items.find(i => i.value === v)?.label || ''; } };
+}
+
+async function loadFilterDokter(main) {
+  try {
+    const list = await api('/dokter');
+    const input = main.querySelector('#filterNama');
+    if (!input) return;
+    const items = list.map(d => ({ value: d.nama, label: `${d.nama} (${d.nip})` }));
+    items.unshift({ value: '', label: '-- Semua Dokter --' });
+    initSearchableSelect('filterNama', 'filterNamaDropdown', items, (val) => {
+      window._namaFilter = val;
+      loadSlipData(main, val, main.querySelector('#filterBulan')?.value || '', window._tindakanFilter || '');
+    });
+  } catch (err) { console.error(err); }
+}
+
+async function loadFilterTindakan(main) {
+  try {
+    const list = await api('/gaji/tindakan-list');
+    const items = list.map(t => ({ value: t, label: t }));
+    items.unshift({ value: '', label: '-- Semua Tindakan --' });
+    initSearchableSelect('filterTindakan', 'filterTindakanDropdown', items, (val) => {
+      window._tindakanFilter = val;
+      loadSlipData(main, main.querySelector('#filterNama')?.value || '', main.querySelector('#filterBulan')?.value || '', val);
+    });
+  } catch (err) { console.error(err); }
 }
 
 async function loadFilterBulan(main) {
@@ -420,10 +506,9 @@ async function loadSlipData(main, namaFilter, bulanFilter, tindakanFilter) {
   try {
     let data = await api('/gaji/slip');
 
-    if (namaFilter) data = data.filter(d => d.nm_dokter && d.nm_dokter.toLowerCase().includes(namaFilter.toLowerCase()));
+    if (namaFilter) data = data.filter(d => d.nm_dokter === namaFilter);
     if (bulanFilter) data = data.filter(d => d.bulan === bulanFilter);
-    if (tindakanFilter === 'ada') data = data.filter(d => d.nm_tindakan && d.nm_tindakan.trim() !== '');
-    if (tindakanFilter === 'tidak') data = data.filter(d => !d.nm_tindakan || d.nm_tindakan.trim() === '');
+    if (tindakanFilter) data = data.filter(d => d.tindakan === tindakanFilter);
 
     if (data.length === 0) {
       grid.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>Belum ada data gaji</h3><p>Silakan hubungi admin</p></div>';
@@ -824,133 +909,245 @@ function renderPendapatan(main) {
       <h2>Input Pendapatan & Potongan</h2>
       <p>Atur tunjangan dan potongan per dokter per bulan</p>
     </div>
-    <div class="card fade-in fade-in-delay-1">
-      <form id="formPendapatan">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
-          <div style="flex:1;min-width:200px">
-            <label for="fpDokter">Dokter</label>
-            <select id="fpDokter" required></select>
-          </div>
-          <div style="flex:1;min-width:160px">
-            <label for="fpBulan">Bulan</label>
-            <select id="fpBulan" required></select>
-          </div>
-        </div>
-
-        <h4 style="margin-bottom:12px;color:var(--slate-700)">Tunjangan</h4>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
-          <div class="form-group"><label>Tunjangan Jabatan</label><input type="number" id="fpTunjab" step="1" value="0"></div>
-          <div class="form-group"><label>Standby Kantor</label><input type="number" id="fpStandby" step="1" value="0"></div>
-          <div class="form-group"><label>Remun Sesuai</label><input type="number" id="fpRemun" step="1" value="0"></div>
-          <div class="form-group"><label>Fee TIM</label><input type="number" id="fpFeeTim" step="1" value="0"></div>
-          <div class="form-group"><label>Tunjangan Kinerja</label><input type="number" id="fpTukin" step="1" value="0"></div>
-        </div>
-
-        <h4 style="margin-bottom:12px;color:var(--slate-700)">Potongan</h4>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
-          <div class="form-group"><label>Potongan Absensi</label><input type="number" id="fpAbsensi" step="1" value="0"></div>
-          <div class="form-group"><label>BPJS Kesehatan</label><input type="number" id="fpBpjs" step="1" value="0"></div>
-          <div class="form-group"><label>Ketenagakerjaan</label><input type="number" id="fpNaker" step="1" value="0"></div>
-          <div class="form-group"><label>PPH 21</label><input type="number" id="fpPph" step="1" value="0"></div>
-          <div class="form-group"><label>Asuransi BUMIDA</label><input type="number" id="fpBumida" step="1" value="0"></div>
-          <div class="form-group"><label>Potongan Lain</label><input type="number" id="fpLain" step="1" value="0"></div>
-        </div>
-
-        <button type="submit" class="btn btn-primary">Simpan</button>
-        <span id="fpTotalInfo" style="margin-left:16px;font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)"></span>
-      </form>
+    <div class="fade-in fade-in-delay-1" style="margin-bottom:20px">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary mode-btn active" data-mode="manual">Input Manual</button>
+        <button class="btn btn-outline mode-btn" data-mode="upload">Upload File</button>
+      </div>
     </div>
+    <div id="pendapatanContent"></div>
   `;
 
-  const selDokter = main.querySelector('#fpDokter');
-  const selBulan = main.querySelector('#fpBulan');
+  const content = main.querySelector('#pendapatanContent');
+  let currentMode = 'manual';
 
-  Promise.all([
-    api('/dokter').then(list => {
-      list.forEach(d => {
-        const opt = document.createElement('option');
-        opt.value = d.nip;
-        opt.textContent = `${d.nama} (${d.nip})`;
-        selDokter.appendChild(opt);
+  main.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      main.querySelectorAll('.mode-btn').forEach(b => {
+        b.className = 'btn btn-outline mode-btn';
       });
-    }),
-    api('/gaji/periode').then(periodes => {
-      periodes.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
-        selBulan.appendChild(opt);
-      });
-    })
-  ]).then(() => {
-    const loadData = () => {
-      const nip = selDokter.value;
-      const bulan = selBulan.value;
-      if (nip && bulan) {
-        api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`).then(data => {
-          if (data) {
-            main.querySelector('#fpTunjab').value = data.tunjangan_jabatan || 0;
-            main.querySelector('#fpStandby').value = data.standby_kantor || 0;
-            main.querySelector('#fpRemun').value = data.remun_sesuai || 0;
-            main.querySelector('#fpFeeTim').value = data.fee_tim || 0;
-            main.querySelector('#fpTukin').value = data.tunjangan_kinerja || 0;
-            main.querySelector('#fpAbsensi').value = data.absensi || 0;
-            main.querySelector('#fpBpjs').value = data.bpjs_kesehatan || 0;
-            main.querySelector('#fpNaker').value = data.ketenagakerjaan || 0;
-            main.querySelector('#fpPph').value = data.pph21 || 0;
-            main.querySelector('#fpBumida').value = data.bumida || 0;
-            main.querySelector('#fpLain').value = data.lain || 0;
-          }
-          updateTotal(main);
-        }).catch(() => {});
-      }
-    };
-    selDokter.addEventListener('change', loadData);
-    selBulan.addEventListener('change', loadData);
-    loadData();
+      btn.className = 'btn btn-primary mode-btn active';
+      currentMode = btn.dataset.mode;
+      renderMode();
+    });
   });
 
-  function updateTotal(m) {
-    const g = id => Number(m.querySelector(id).value) || 0;
-    const tunjangan = g('#fpTunjab') + g('#fpStandby') + g('#fpRemun') + g('#fpFeeTim') + g('#fpTukin');
-    const potongan = g('#fpAbsensi') + g('#fpBpjs') + g('#fpNaker') + g('#fpPph') + g('#fpBumida') + g('#fpLain');
-    m.querySelector('#fpTotalInfo').textContent = `Tunjangan: Rp ${tunjangan.toLocaleString()} | Potongan: Rp ${potongan.toLocaleString()} | Bersih: Rp ${(tunjangan - potongan).toLocaleString()}`;
+  function renderMode() {
+    if (currentMode === 'manual') {
+      content.innerHTML = `
+        <div class="card">
+          <form id="formPendapatan">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+              <div style="flex:1;min-width:200px">
+                <label for="fpDokter">Dokter</label>
+                <select id="fpDokter" required></select>
+              </div>
+              <div style="flex:1;min-width:160px">
+                <label for="fpBulan">Bulan</label>
+                <select id="fpBulan" required></select>
+              </div>
+            </div>
+
+            <h4 style="margin-bottom:12px;color:var(--slate-700)">Tunjangan</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
+              <div class="form-group"><label>Tunjangan Jabatan</label><input type="number" id="fpTunjab" step="1" value="0"></div>
+              <div class="form-group"><label>Standby Kantor</label><input type="number" id="fpStandby" step="1" value="0"></div>
+              <div class="form-group"><label>Remun Sesuai</label><input type="number" id="fpRemun" step="1" value="0"></div>
+              <div class="form-group"><label>Fee TIM</label><input type="number" id="fpFeeTim" step="1" value="0"></div>
+              <div class="form-group"><label>Tunjangan Kinerja</label><input type="number" id="fpTukin" step="1" value="0"></div>
+            </div>
+
+            <h4 style="margin-bottom:12px;color:var(--slate-700)">Potongan</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
+              <div class="form-group"><label>Potongan Absensi</label><input type="number" id="fpAbsensi" step="1" value="0"></div>
+              <div class="form-group"><label>BPJS Kesehatan</label><input type="number" id="fpBpjs" step="1" value="0"></div>
+              <div class="form-group"><label>Ketenagakerjaan</label><input type="number" id="fpNaker" step="1" value="0"></div>
+              <div class="form-group"><label>PPH 21</label><input type="number" id="fpPph" step="1" value="0"></div>
+              <div class="form-group"><label>Asuransi BUMIDA</label><input type="number" id="fpBumida" step="1" value="0"></div>
+              <div class="form-group"><label>Potongan Lain</label><input type="number" id="fpLain" step="1" value="0"></div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Simpan</button>
+            <span id="fpTotalInfo" style="margin-left:16px;font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)"></span>
+          </form>
+        </div>
+      `;
+
+      const selDokter = content.querySelector('#fpDokter');
+      const selBulan = content.querySelector('#fpBulan');
+
+      Promise.all([
+        api('/dokter').then(list => {
+          list.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.nip;
+            opt.textContent = `${d.nama} (${d.nip})`;
+            selDokter.appendChild(opt);
+          });
+        }),
+        api('/gaji/periode').then(periodes => {
+          periodes.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            selBulan.appendChild(opt);
+          });
+        })
+      ]).then(() => {
+        const loadData = () => {
+          const nip = selDokter.value;
+          const bulan = selBulan.value;
+          if (nip && bulan) {
+            api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`).then(data => {
+              if (data) {
+                content.querySelector('#fpTunjab').value = data.tunjangan_jabatan || 0;
+                content.querySelector('#fpStandby').value = data.standby_kantor || 0;
+                content.querySelector('#fpRemun').value = data.remun_sesuai || 0;
+                content.querySelector('#fpFeeTim').value = data.fee_tim || 0;
+                content.querySelector('#fpTukin').value = data.tunjangan_kinerja || 0;
+                content.querySelector('#fpAbsensi').value = data.absensi || 0;
+                content.querySelector('#fpBpjs').value = data.bpjs_kesehatan || 0;
+                content.querySelector('#fpNaker').value = data.ketenagakerjaan || 0;
+                content.querySelector('#fpPph').value = data.pph21 || 0;
+                content.querySelector('#fpBumida').value = data.bumida || 0;
+                content.querySelector('#fpLain').value = data.lain || 0;
+              }
+              updateTotal(content);
+            }).catch(() => {});
+          }
+        };
+        selDokter.addEventListener('change', loadData);
+        selBulan.addEventListener('change', loadData);
+        loadData();
+      });
+
+      function updateTotal(m) {
+        const g = id => Number(m.querySelector(id).value) || 0;
+        const tunjangan = g('#fpTunjab') + g('#fpStandby') + g('#fpRemun') + g('#fpFeeTim') + g('#fpTukin');
+        const potongan = g('#fpAbsensi') + g('#fpBpjs') + g('#fpNaker') + g('#fpPph') + g('#fpBumida') + g('#fpLain');
+        m.querySelector('#fpTotalInfo').textContent = `Tunjangan: Rp ${tunjangan.toLocaleString()} | Potongan: Rp ${potongan.toLocaleString()} | Bersih: Rp ${(tunjangan - potongan).toLocaleString()}`;
+      }
+
+      content.querySelectorAll('#formPendapatan input[type="number"]').forEach(inp => {
+        inp.addEventListener('input', () => updateTotal(content));
+      });
+
+      content.querySelector('#formPendapatan').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nipl = selDokter.value;
+        const bulan = selBulan.value;
+        if (!nipl || !bulan) return notify('Pilih dokter dan bulan', 'error');
+        const dokter = selDokter.options[selDokter.selectedIndex].text;
+        const payload = {
+          nip: nipl,
+          nm_dokter: dokter.split(' (')[0],
+          bulan,
+          tunjangan_jabatan: content.querySelector('#fpTunjab').value,
+          standby_kantor: content.querySelector('#fpStandby').value,
+          remun_sesuai: content.querySelector('#fpRemun').value,
+          fee_tim: content.querySelector('#fpFeeTim').value,
+          tunjangan_kinerja: content.querySelector('#fpTukin').value,
+          absensi: content.querySelector('#fpAbsensi').value,
+          bpjs_kesehatan: content.querySelector('#fpBpjs').value,
+          ketenagakerjaan: content.querySelector('#fpNaker').value,
+          pph21: content.querySelector('#fpPph').value,
+          bumida: content.querySelector('#fpBumida').value,
+          lain: content.querySelector('#fpLain').value,
+        };
+        const btn = e.target.querySelector('.btn');
+        btn.disabled = true; btn.textContent = 'Menyimpan...';
+        try {
+          await api('/pendapatan', { method: 'POST', body: JSON.stringify(payload) });
+          notify('Data pendapatan & potongan berhasil disimpan', 'success');
+        } catch (err) { notify(err.message, 'error'); }
+        btn.disabled = false; btn.textContent = 'Simpan';
+      });
+    } else {
+      content.innerHTML = `
+        <div class="card">
+          <form id="uploadFormPendapatan">
+            <div class="upload-zone" id="uploadZonePendapatan">
+              <div class="icon">📂</div>
+              <p>Klik atau seret file ke sini</p>
+              <p class="hint">Format: CSV, XLS, XLSX (maks 5MB)</p>
+            </div>
+            <input type="file" id="fileInputPendapatan" accept=".csv,.xls,.xlsx" style="display:none">
+            <div id="fileInfoPendapatan" style="display:none;margin-top:16px;padding:12px;background:var(--emerald-50);border-radius:var(--radius-sm)">
+              <p style="font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)">📄 <span id="fileNamePendapatan"></span></p>
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top:20px;width:100%" id="btnUploadPendapatan">Upload & Proses</button>
+          </form>
+          <div style="margin-top:20px;padding:16px;background:var(--slate-50);border-radius:var(--radius-sm);font-size:.85rem;color:var(--slate-600)">
+            <strong style="color:var(--slate-800)">Format kolom yang didukung:</strong><br>
+            <code>nip, nm_dokter, bulan, tunjangan_jabatan, standby_kantor, remun_sesuai, fee_tim, tunjangan_kinerja, absensi, bpjs_kesehatan, ketenagakerjaan, pph21, bumida, lain</code>
+            <button type="button" class="btn btn-outline" style="margin-top:12px" id="btnDownloadTemplate">Download Contoh CSV</button>
+          </div>
+        </div>
+      `;
+
+      const zone = content.querySelector('#uploadZonePendapatan');
+      const input = content.querySelector('#fileInputPendapatan');
+      const fileInfo = content.querySelector('#fileInfoPendapatan');
+      const fileName = content.querySelector('#fileNamePendapatan');
+
+      zone.addEventListener('click', () => input.click());
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+          input.files = e.dataTransfer.files;
+          fileName.textContent = input.files[0].name;
+          fileInfo.style.display = 'block';
+        }
+      });
+      input.addEventListener('change', () => {
+        if (input.files.length) {
+          fileName.textContent = input.files[0].name;
+          fileInfo.style.display = 'block';
+        }
+      });
+
+      content.querySelector('#btnDownloadTemplate').addEventListener('click', () => {
+        const cols = ['nip','nm_dokter','bulan','tunjangan_jabatan','standby_kantor','remun_sesuai','fee_tim','tunjangan_kinerja','absensi','bpjs_kesehatan','ketenagakerjaan','pph21','bumida','lain'];
+        const sample = ['123456','Dr. Contoh','Januari 2026','500000','300000','1000000','200000','750000','0','150000','200000','250000','100000','0'];
+        const csv = cols.join(',') + '\n' + sample.join(',') + '\n';
+        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'template_pendapatan.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      content.querySelector('#uploadFormPendapatan').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!input.files.length) return notify('Pilih file terlebih dahulu', 'error');
+        const btn = content.querySelector('#btnUploadPendapatan');
+        btn.disabled = true; btn.textContent = 'Memproses...';
+
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+
+        try {
+          const res = await fetch(`${API}/pendapatan/upload`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${state.token}` },
+            body: formData
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          notify(data.message, 'success');
+          input.value = '';
+          fileInfo.style.display = 'none';
+        } catch (err) { notify(err.message, 'error'); }
+        btn.disabled = false; btn.textContent = 'Upload & Proses';
+      });
+    }
   }
 
-  main.querySelectorAll('#formPendapatan input[type="number"]').forEach(inp => {
-    inp.addEventListener('input', () => updateTotal(main));
-  });
-
-  main.querySelector('#formPendapatan').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const nipl = selDokter.value;
-    const bulan = selBulan.value;
-    if (!nipl || !bulan) return notify('Pilih dokter dan bulan', 'error');
-    const dokter = selDokter.options[selDokter.selectedIndex].text;
-    const payload = {
-      nip: nipl,
-      nm_dokter: dokter.split(' (')[0],
-      bulan,
-      tunjangan_jabatan: main.querySelector('#fpTunjab').value,
-      standby_kantor: main.querySelector('#fpStandby').value,
-      remun_sesuai: main.querySelector('#fpRemun').value,
-      fee_tim: main.querySelector('#fpFeeTim').value,
-      tunjangan_kinerja: main.querySelector('#fpTukin').value,
-      absensi: main.querySelector('#fpAbsensi').value,
-      bpjs_kesehatan: main.querySelector('#fpBpjs').value,
-      ketenagakerjaan: main.querySelector('#fpNaker').value,
-      pph21: main.querySelector('#fpPph').value,
-      bumida: main.querySelector('#fpBumida').value,
-      lain: main.querySelector('#fpLain').value,
-    };
-    const btn = e.target.querySelector('.btn');
-    btn.disabled = true; btn.textContent = 'Menyimpan...';
-    try {
-      await api('/pendapatan', { method: 'POST', body: JSON.stringify(payload) });
-      notify('Data pendapatan & potongan berhasil disimpan', 'success');
-    } catch (err) { notify(err.message, 'error'); }
-    btn.disabled = false; btn.textContent = 'Simpan';
-  });
+  renderMode();
 }
 
 /* ─── INIT ─── */

@@ -130,10 +130,32 @@ router.get('/dokter-names', (req, res) => {
   res.json(names.map(n => n.nm_dokter));
 });
 
+const bulanOrder = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const bulanMap = {
+  'january':'Januari','february':'Februari','march':'Maret','april':'April','may':'Mei','june':'Juni',
+  'july':'Juli','august':'Agustus','september':'September','october':'Oktober','november':'November','december':'Desember'
+};
+
 router.get('/periode', (req, res) => {
   const db = getDb();
-  const periodes = db.prepare('SELECT DISTINCT bulan FROM gaji ORDER BY bulan DESC').all();
-  res.json(periodes.map(p => p.bulan));
+  const periodes = db.prepare("SELECT DISTINCT TRIM(bulan) as bulan FROM gaji WHERE bulan != ''").all();
+  const unique = new Set();
+  periodes.forEach(p => {
+    const key = p.bulan.toLowerCase();
+    unique.add(bulanMap[key] || p.bulan);
+  });
+  const sorted = [...unique].sort((a, b) => {
+    const ai = bulanOrder.indexOf(a);
+    const bi = bulanOrder.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  }).reverse();
+  res.json(sorted);
+});
+
+router.get('/tindakan-list', (req, res) => {
+  const db = getDb();
+  const list = db.prepare("SELECT DISTINCT tindakan FROM gaji WHERE tindakan IS NOT NULL AND tindakan != '' ORDER BY tindakan ASC").all();
+  res.json(list.map(r => r.tindakan));
 });
 
 module.exports = router;

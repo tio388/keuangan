@@ -347,6 +347,8 @@ label {
   gap: 12px;
   margin-bottom: 20px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 100;
 }
 
 /* ─── DOCTOR TABLE ─── */
@@ -501,6 +503,55 @@ tbody tr:hover { background: var(--slate-50); }
 .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
 .empty-state h3 { font-family: var(--font-heading); color: var(--slate-500); margin-bottom: 8px; }
 .empty-state p { font-size: .9rem; }
+
+/* ─── SEARCHABLE SELECT ─── */
+.searchable-select {
+  position: relative;
+  min-width: 0;
+}
+.searchable-select input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: .9rem;
+  color: var(--slate-800);
+  background: #fff;
+  outline: none;
+  transition: border-color .2s;
+}
+.searchable-select input:focus {
+  border-color: var(--emerald-500);
+  box-shadow: 0 0 0 3px rgba(16,185,129,.15);
+}
+.searchable-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  display: none;
+}
+.searchable-dropdown.open { display: block; }
+.searchable-dropdown .s-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: .85rem;
+  color: var(--slate-700);
+  transition: background .1s;
+}
+.searchable-dropdown .s-item:hover,
+.searchable-dropdown .s-item.active {
+  background: var(--emerald-50);
+  color: var(--emerald-700);
+}
 
 /* ─── RESPONSIVE ─── */
 @media (max-width: 768px) {
