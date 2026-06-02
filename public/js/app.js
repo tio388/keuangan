@@ -105,6 +105,7 @@ function renderDashboard() {
         { id: 'slip-recap', icon: '📄', label: 'Slip Gaji' },
         { id: 'rekap-tindakan', icon: '📊', label: 'Rekap Data Tindakan' },
         { id: 'pendapatan', icon: '💰', label: 'Input Pendapatan & Potongan' },
+        { id: 'master-pendapatan', icon: '⚙️', label: 'Master Item' },
         { id: 'slip', icon: '📋', label: 'Data Gaji Dokter' }
       ]
     : [
@@ -167,6 +168,7 @@ function navigate(view) {
     case 'slip-recap': renderSlipRecap(main); break;
     case 'rekap-tindakan': renderRekapTindakan(main); break;
     case 'pendapatan': renderPendapatan(main); break;
+    case 'master-pendapatan': renderMasterPendapatan(main); break;
     case 'slip': renderSlip(main); break;
   }
 }
@@ -315,6 +317,12 @@ function renderUpload(main) {
       <div style="margin-top:20px;padding:16px;background:var(--slate-50);border-radius:var(--radius-sm);font-size:.85rem;color:var(--slate-600)">
         <strong style="color:var(--slate-800)">Format kolom yang didukung:</strong><br>
         <code>nip, nm_dokter, bulan, tanggal, poliklinik, pasien, Ruangan, pembayaran, tindakan, tarif, OP_NON, Jumlah, BHP, JM_dokter</code>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="chkOverride" style="width:18px;height:18px;cursor:pointer">
+          <label for="chkOverride" style="margin:0;cursor:pointer;font-weight:500;color:var(--slate-700)">
+            Replace data yang sudah ada jika NIP dan Periode sama (Override)
+          </label>
+        </div>
         <button type="button" class="btn btn-outline" style="margin-top:12px" id="btnDownloadTemplateGaji">Download Contoh CSV</button>
       </div>
     </div>
@@ -358,11 +366,12 @@ function renderUpload(main) {
     const btn = main.querySelector('#btnUpload');
     btn.disabled = true; btn.textContent = 'Memproses...';
 
+    const isOverride = main.querySelector('#chkOverride').checked;
     const formData = new FormData();
     formData.append('file', input.files[0]);
 
     try {
-      const res = await fetch(`${API}/gaji/upload`, {
+      const res = await fetch(`${API}/gaji/upload${isOverride ? '?override=true' : ''}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${state.token}` },
         body: formData
@@ -403,7 +412,7 @@ function renderSlip(main) {
         <div class="searchable-dropdown" id="filterTindakanDropdown"></div>
       </div>
     </div>
-    <div class="slip-grid fade-in fade-in-delay-2" id="slipGrid">
+    <div class="table-responsive fade-in fade-in-delay-2" id="slipGrid">
       <div class="empty-state"><div class="icon">📋</div><h3>Memuat data...</h3></div>
     </div>
   `;
@@ -501,53 +510,238 @@ async function loadFilterBulan(main) {
   } catch (err) { console.error(err); }
 }
 
+let _slipPage = 1;
+const _slipPerPage = 50;
+let _slipData = [];
+
+let _pendapatanDeleter = null;
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fp-delete');
+  if (btn && _pendapatanDeleter) {
+    e.preventDefault();
+    e.stopPropagation();
+    const tr = btn.closest('tr');
+    const id = tr?.dataset?.id;
+    if (id) _pendapatanDeleter(id);
+  }
+});
+
 async function loadSlipData(main, namaFilter, bulanFilter, tindakanFilter) {
   const grid = main.querySelector('#slipGrid');
   try {
-    let data = await api('/gaji/slip');
+    _slipData = await api('/gaji/slip');
 
-    if (namaFilter) data = data.filter(d => d.nm_dokter === namaFilter);
-    if (bulanFilter) data = data.filter(d => d.bulan === bulanFilter);
-    if (tindakanFilter) data = data.filter(d => d.tindakan === tindakanFilter);
+    if (namaFilter) _slipData = _slipData.filter(d => d.nm_dokter === namaFilter);
+    if (bulanFilter) _slipData = _slipData.filter(d => d.bulan === bulanFilter);
+    if (tindakanFilter) _slipData = _slipData.filter(d => d.tindakan === tindakanFilter);
 
-    if (data.length === 0) {
+    if (_slipData.length === 0) {
       grid.innerHTML = '<div class="empty-state"><div class="icon">📋</div><h3>Belum ada data gaji</h3><p>Silakan hubungi admin</p></div>';
       return;
     }
 
-    grid.innerHTML = data.map((d, i) => `
-      <div class="slip-card card" style="animation-delay:${Math.min(i * 0.05, 1)}s">
-        <div class="slip-header">
-          <div>
-            <h4>${sanitize(d.nm_dokter)}</h4>
-            <p style="font-size:.8rem;color:var(--slate-400)">NIP: ${sanitize(d.nip)}</p>
-          </div>
-          <div class="bulan">${sanitize(d.bulan)}</div>
-        </div>
-        <div class="slip-detail">
-          <span class="label">Poliklinik</span><span class="value">${sanitize(d.poliklinik || '-')}</span>
-          <span class="label">Tanggal</span><span class="value">${sanitize(d.tanggal || '-')}</span>
-          <span class="label">Pasien</span><span class="value">${sanitize(d.pasien || '-')}</span>
-          <span class="label">Ruangan</span><span class="value">${sanitize(d.Ruangan || '-')}</span>
-          <span class="label">Pembayaran</span><span class="value">${sanitize(d.pembayaran || '-')}</span>
-          <span class="label">Tindakan</span><span class="value">${sanitize(d.tindakan || '-')}</span>
-          <span class="label">Tarif</span><span class="value">Rp ${Number(d.tarif).toLocaleString()}</span>
-          <span class="label">OP/NON</span><span class="value">${sanitize(d.OP_NON || '-')}</span>
-          <span class="label">BHP</span><span class="value">Rp ${Number(d.BHP).toLocaleString()}</span>
-          <span class="label">JM Dokter</span><span class="value">Rp ${Number(d.JM_dokter).toLocaleString()}</span>
-          <div class="total-row">
-            <span>Total Jumlah</span>
-            <span class="value">Rp ${Number(d.Jumlah).toLocaleString()}</span>
-          </div>
-        </div>
-      </div>
-    `).join('');
+    _slipPage = 1;
+    renderSlipPage(grid);
   } catch (err) {
     grid.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Gagal memuat data</h3><p>${err.message}</p></div>`;
   }
 }
 
-/* ─── SLIP GAJI (REKAP) ─── */
+function renderSlipPage(grid) {
+  const total = _slipData.length;
+  const totalPages = Math.ceil(total / _slipPerPage);
+  if (_slipPage > totalPages) _slipPage = totalPages;
+
+  const start = (_slipPage - 1) * _slipPerPage;
+  const page = _slipData.slice(start, start + _slipPerPage);
+
+  let pagesHtml = '';
+  if (totalPages > 1) {
+    const range = 3;
+    const from = Math.max(1, _slipPage - range);
+    const to = Math.min(totalPages, _slipPage + range);
+    pagesHtml = `<div class="pagination">
+      <button class="btn-page" data-page="${_slipPage - 1}"${_slipPage <= 1 ? ' disabled' : ''}>&laquo;</button>
+      ${from > 1 ? '<span class="page-dots">...</span>' : ''}
+      ${Array.from({length: to - from + 1}, (_, i) => from + i).map(p =>
+        `<button class="btn-page${p === _slipPage ? ' active' : ''}" data-page="${p}">${p}</button>`
+      ).join('')}
+      ${to < totalPages ? '<span class="page-dots">...</span>' : ''}
+      <button class="btn-page" data-page="${_slipPage + 1}"${_slipPage >= totalPages ? ' disabled' : ''}>&raquo;</button>
+      <span class="page-info">${total} data</span>
+    </div>`;
+  }
+
+  grid.innerHTML = `
+    <table class="slip-table">
+      <thead>
+        <tr>
+          <th>Nama Dokter</th>
+          <th>Tanggal</th>
+          <th>Pasien</th>
+          <th>Ruangan</th>
+          <th>Pembayaran</th>
+          <th>Tindakan</th>
+          <th class="text-right">JM Dokter</th>
+          ${state.user.role === 'admin' ? '<th style="width:80px;text-align:center">Aksi</th>' : ''}
+        </tr>
+      </thead>
+      <tbody>
+        ${page.map(d => `
+          <tr>
+            <td>
+              <div class="td-name">${sanitize(d.nm_dokter)}</div>
+              <div class="td-nip">${sanitize(d.nip)}</div>
+            </td>
+            <td>${sanitize(d.tanggal || '-')}</td>
+            <td>${sanitize(d.pasien || '-')}</td>
+            <td>${sanitize(d.Ruangan || '-')}</td>
+            <td>${sanitize(d.pembayaran || '-')}</td>
+            <td>${sanitize(d.tindakan || '-')}</td>
+            <td class="text-right">Rp ${Number(d.JM_dokter).toLocaleString()}</td>
+            ${state.user.role === 'admin' ? `<td style="text-align:center"><button class="btn btn-sm btn-edit" data-id="${d.id}" style="padding:4px 8px;font-size:.75rem">✏️</button></td>` : ''}
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    ${pagesHtml}`;
+
+  grid.querySelectorAll('.btn-page:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _slipPage = Number(btn.dataset.page);
+      renderSlipPage(grid);
+    });
+  });
+
+  // Event listener untuk tombol edit
+  if (state.user.role === 'admin') {
+    grid.querySelectorAll('.btn-edit').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          const data = await api(`/gaji/slip/${id}`);
+          showEditGajiModal(data, () => {
+            // Refresh data setelah update
+            loadSlipData(document.getElementById('mainContent'), window._namaFilter || '', document.getElementById('filterBulan')?.value || '', window._tindakanFilter || '');
+          });
+        } catch (err) { notify(err.message, 'error'); }
+      });
+    });
+  }
+}
+
+function showEditGajiModal(data, onSave) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:700px">
+      <h3>Edit Data Gaji Dokter</h3>
+      <form id="formEditGaji">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group">
+            <label for="egNama">Nama Dokter</label>
+            <input type="text" id="egNama" value="${sanitize(data.nm_dokter || '')}" disabled>
+          </div>
+          <div class="form-group">
+            <label for="egNip">NIP</label>
+            <input type="text" id="egNip" value="${sanitize(data.nip || '')}" disabled>
+          </div>
+          <div class="form-group">
+            <label for="egBulan">Bulan</label>
+            <input type="text" id="egBulan" value="${sanitize(data.bulan || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egTahun">Tahun</label>
+            <input type="text" id="egTahun" value="${sanitize(data.tahun || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egTanggal">Tanggal</label>
+            <input type="text" id="egTanggal" value="${sanitize(data.tanggal || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egPoliklinik">Poliklinik</label>
+            <input type="text" id="egPoliklinik" value="${sanitize(data.poliklinik || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egPasien">Pasien</label>
+            <input type="text" id="egPasien" value="${sanitize(data.pasien || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egRuangan">Ruangan</label>
+            <input type="text" id="egRuangan" value="${sanitize(data.Ruangan || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egPembayaran">Pembayaran</label>
+            <input type="text" id="egPembayaran" value="${sanitize(data.pembayaran || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egTindakan">Tindakan</label>
+            <input type="text" id="egTindakan" value="${sanitize(data.tindakan || '')}">
+          </div>
+          <div class="form-group">
+            <label for="egTarif">Tarif</label>
+            <input type="number" id="egTarif" value="${data.tarif || 0}">
+          </div>
+          <div class="form-group">
+            <label for="egJumlah">Jumlah</label>
+            <input type="number" id="egJumlah" value="${data.Jumlah || 0}">
+          </div>
+          <div class="form-group">
+            <label for="egBHP">BHP</label>
+            <input type="number" id="egBHP" value="${data.BHP || 0}">
+          </div>
+          <div class="form-group">
+            <label for="egJM">JM Dokter</label>
+            <input type="number" id="egJM" value="${data.JM_dokter || 0}">
+          </div>
+          <div class="form-group" style="grid-column:1/-1">
+            <label for="egTindakanNama">Nama Tindakan</label>
+            <input type="text" id="egTindakanNama" value="${sanitize(data.nm_tindakan || '')}">
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btnCancelEdit">Batal</button>
+          <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#btnCancelEdit').addEventListener('click', () => overlay.remove());
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+  overlay.querySelector('#formEditGaji').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      nip: overlay.querySelector('#egNip').value,
+      nm_dokter: overlay.querySelector('#egNama').value,
+      bulan: overlay.querySelector('#egBulan').value,
+      tahun: overlay.querySelector('#egTahun').value,
+      tanggal: overlay.querySelector('#egTanggal').value,
+      poliklinik: overlay.querySelector('#egPoliklinik').value,
+      pasien: overlay.querySelector('#egPasien').value,
+      Ruangan: overlay.querySelector('#egRuangan').value,
+      pembayaran: overlay.querySelector('#egPembayaran').value,
+      tindakan: overlay.querySelector('#egTindakan').value,
+      tarif: overlay.querySelector('#egTarif').value,
+      Jumlah: overlay.querySelector('#egJumlah').value,
+      BHP: overlay.querySelector('#egBHP').value,
+      JM_dokter: overlay.querySelector('#egJM').value,
+      nm_tindakan: overlay.querySelector('#egTindakanNama').value,
+      periode: overlay.querySelector('#egBulan').value,
+      pending: 0
+    };
+    const btn = overlay.querySelector('#formEditGaji .btn-primary');
+    btn.disabled = true; btn.textContent = 'Menyimpan...';
+    try {
+      await api(`/gaji/${data.id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      notify('Data gaji berhasil diperbarui', 'success');
+      overlay.remove();
+      if (onSave) onSave();
+    } catch (err) { notify(err.message, 'error'); btn.disabled = false; btn.textContent = 'Simpan Perubahan'; }
+  });
+}
 function renderSlipRecap(main) {
   const isAdmin = state.user.role === 'admin';
   main.innerHTML = `
@@ -557,6 +751,7 @@ function renderSlipRecap(main) {
     </div>
     <div class="filter-bar fade-in fade-in-delay-1">
       ${isAdmin ? '<select id="recapDokter" style="max-width:300px"><option value="">-- Pilih Dokter --</option></select>' : ''}
+      <select id="recapTahun" style="max-width:120px"><option value="">-- Semua Tahun --</option></select>
       <select id="recapBulan" style="max-width:160px">
         <option value="">-- Semua Bulan --</option>
       </select>
@@ -566,18 +761,40 @@ function renderSlipRecap(main) {
     </div>
   `;
 
-  const loadBulan = () => api('/gaji/periode').then(periodes => {
+  let allPeriodes = [];
+
+  const loadPeriodes = () => Promise.all([
+    api('/gaji/periode'),
+    api('/gaji/tahun')
+  ]).then(([periodes, tahunList]) => {
+    allPeriodes = periodes;
+    const tahunSel = main.querySelector('#recapTahun');
+    tahunList.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      tahunSel.appendChild(opt);
+    });
+    populateBulan('');
+  });
+
+  const populateBulan = () => {
     const sel = main.querySelector('#recapBulan');
-    periodes.forEach(p => {
+    const val = sel.value;
+    sel.innerHTML = '<option value="">-- Semua Bulan --</option>';
+    allPeriodes.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p;
       opt.textContent = p;
       sel.appendChild(opt);
     });
-  });
+    if ([...sel.options].some(o => o.value === val)) sel.value = val;
+    else sel.value = '';
+  };
 
   const getFilters = () => ({
     nip: main.querySelector('#recapDokter')?.value || state.user.nip,
+    tahun: main.querySelector('#recapTahun').value,
     bulan: main.querySelector('#recapBulan').value,
   });
 
@@ -587,11 +804,11 @@ function renderSlipRecap(main) {
       main.querySelector('#recapContainer').innerHTML = '<div class="empty-state"><div class="icon">📄</div><h3>Pilih dokter untuk melihat rekap</h3></div>';
       return;
     }
-    loadSlipRecap(main, f.nip, f.bulan);
+    loadSlipRecap(main, f.nip, f.bulan, f.tahun);
   };
 
   if (isAdmin) {
-    loadBulan().then(() => {
+    loadPeriodes().then(() => {
       api('/dokter').then(list => {
         const sel = main.querySelector('#recapDokter');
         list.forEach(d => {
@@ -601,22 +818,31 @@ function renderSlipRecap(main) {
           sel.appendChild(opt);
         });
         sel.addEventListener('change', onFilter);
+        main.querySelector('#recapTahun').addEventListener('change', () => {
+          populateBulan(main.querySelector('#recapTahun').value);
+          onFilter();
+        });
         main.querySelector('#recapBulan').addEventListener('change', onFilter);
       });
     });
   } else {
-    loadBulan().then(() => {
+    loadPeriodes().then(() => {
+      main.querySelector('#recapTahun').addEventListener('change', () => {
+        populateBulan(main.querySelector('#recapTahun').value);
+        onFilter();
+      });
       main.querySelector('#recapBulan').addEventListener('change', onFilter);
-      loadSlipRecap(main, state.user.nip, '');
+      loadSlipRecap(main, state.user.nip, '', '');
     });
   }
 }
 
-async function loadSlipRecap(main, nip, bulan) {
+async function loadSlipRecap(main, nip, bulan, tahun) {
   const container = main.querySelector('#recapContainer');
   try {
     let data = await api('/gaji/slip');
     data = data.filter(d => d.nip === nip);
+    if (tahun) data = data.filter(d => d.tahun === tahun);
     if (bulan) data = data.filter(d => d.bulan === bulan);
     data = data.filter(d => d.nm_tindakan && Number(d.tarif) > 0);
 
@@ -676,8 +902,11 @@ async function loadSlipRecap(main, nip, bulan) {
       try {
         const pd = await api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`);
         if (pd) {
-          const t = Number(pd.tunjangan_jabatan) + Number(pd.standby_kantor) + Number(pd.remun_sesuai) + Number(pd.fee_tim) + Number(pd.tunjangan_kinerja);
-          const pot = Number(pd.absensi) + Number(pd.bpjs_kesehatan) + Number(pd.ketenagakerjaan) + Number(pd.pph21) + Number(pd.bumida) + Number(pd.lain);
+          const detail = pd.detail || [];
+          const tunjItems = detail.filter(d => d.jenis === 'tunjangan');
+          const potItems = detail.filter(d => d.jenis === 'potongan');
+          const t = tunjItems.reduce((s, d) => s + Number(d.nilai), 0);
+          const pot = potItems.reduce((s, d) => s + Number(d.nilai), 0);
           const totalPendapatan = grandTotal + t - pot;
           summaryCards = `
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px">
@@ -698,6 +927,16 @@ async function loadSlipRecap(main, nip, bulan) {
             <div style="font-family:var(--font-heading);font-weight:800;font-size:1.2rem">Rp ${totalPendapatan.toLocaleString()}</div>
           </div>
         </div>`;
+          const tunjRows = tunjItems.map((d, i) => `
+            ${i === 0 ? `<tr><td rowspan="${tunjItems.length}" style="font-weight:600;vertical-align:middle">Tunjangan</td>` : '<tr>'}
+              <td>${sanitize(d.nama)}</td>
+              <td style="text-align:right">Rp ${Number(d.nilai).toLocaleString()}</td>
+            </tr>`).join('');
+          const potRows = potItems.map((d, i) => `
+            ${i === 0 ? `<tr><td rowspan="${potItems.length}" style="font-weight:600;vertical-align:middle">Potongan</td>` : '<tr>'}
+              <td>${sanitize(d.nama)}</td>
+              <td style="text-align:right">Rp ${Number(d.nilai).toLocaleString()}</td>
+            </tr>`).join('');
           pendapatanHtml = `
         <div class="card" style="margin-top:20px">
           <div class="table-container">
@@ -706,18 +945,9 @@ async function loadSlipRecap(main, nip, bulan) {
                 <tr><th>Jenis</th><th>Item</th><th style="text-align:right">Nominal</th></tr>
               </thead>
               <tbody>
-                <tr><td rowspan="5" style="font-weight:600;vertical-align:middle">Tunjangan</td><td>Tunjangan Jabatan</td><td style="text-align:right">Rp ${Number(pd.tunjangan_jabatan).toLocaleString()}</td></tr>
-                <tr><td>Standby Kantor</td><td style="text-align:right">Rp ${Number(pd.standby_kantor).toLocaleString()}</td></tr>
-                <tr><td>Remun Sesuai</td><td style="text-align:right">Rp ${Number(pd.remun_sesuai).toLocaleString()}</td></tr>
-                <tr><td>Fee TIM</td><td style="text-align:right">Rp ${Number(pd.fee_tim).toLocaleString()}</td></tr>
-                <tr><td>Tunjangan Kinerja</td><td style="text-align:right">Rp ${Number(pd.tunjangan_kinerja).toLocaleString()}</td></tr>
+                ${tunjRows}
                 <tr style="background:var(--slate-50)"><td></td><td style="font-weight:600">Subtotal Tunjangan</td><td style="text-align:right;font-weight:600">Rp ${t.toLocaleString()}</td></tr>
-                <tr><td rowspan="6" style="font-weight:600;vertical-align:middle">Potongan</td><td>Potongan Absensi</td><td style="text-align:right">Rp ${Number(pd.absensi).toLocaleString()}</td></tr>
-                <tr><td>BPJS Kesehatan</td><td style="text-align:right">Rp ${Number(pd.bpjs_kesehatan).toLocaleString()}</td></tr>
-                <tr><td>Ketenagakerjaan</td><td style="text-align:right">Rp ${Number(pd.ketenagakerjaan).toLocaleString()}</td></tr>
-                <tr><td>PPH 21</td><td style="text-align:right">Rp ${Number(pd.pph21).toLocaleString()}</td></tr>
-                <tr><td>Asuransi BUMIDA</td><td style="text-align:right">Rp ${Number(pd.bumida).toLocaleString()}</td></tr>
-                <tr><td>Potongan Lain</td><td style="text-align:right">Rp ${Number(pd.lain).toLocaleString()}</td></tr>
+                ${potRows}
                 <tr style="background:var(--slate-50)"><td></td><td style="font-weight:600">Subtotal Potongan</td><td style="text-align:right;font-weight:600">Rp ${pot.toLocaleString()}</td></tr>
                 <tr style="background:var(--emerald-600);color:#fff">
                   <td colspan="2" style="font-weight:800;font-family:var(--font-heading)">PENGHASILAN BERSIH</td>
@@ -902,6 +1132,108 @@ async function loadRekapTindakan(main, nipFilter, bulanFilter) {
   }
 }
 
+/* ─── MASTER PENDAPATAN & POTONGAN ─── */
+function renderMasterPendapatan(main) {
+  main.innerHTML = `
+    <div class="page-header fade-in">
+      <h2>Master Item Pendapatan & Potongan</h2>
+      <p>Atur daftar item tunjangan dan potongan yang tersedia di sistem</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px" class="fade-in fade-in-delay-1" id="masterGrid">
+      <div class="card">
+        <h3 style="font-family:var(--font-heading);color:var(--emerald-700);margin-bottom:12px">💚 Tunjangan</h3>
+        <form id="formAddTunjangan" style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="addNamaTunjangan" required placeholder="Nama item tunjangan"
+            style="flex:1;padding:8px 12px;border:2px solid var(--slate-200);border-radius:var(--radius-sm);font-size:.85rem;outline:none;font-family:var(--font-body)">
+          <button type="submit" class="btn btn-primary" style="padding:8px 16px;font-size:.85rem;white-space:nowrap">+ Tambah</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th style="width:50px">#</th><th>Nama Item</th><th style="width:80px;text-align:center">Aksi</th></tr></thead>
+            <tbody id="tbodyTunjangan"><tr><td colspan="3" style="text-align:center;color:var(--slate-400);padding:24px">Memuat...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="font-family:var(--font-heading);color:var(--rose-700);margin-bottom:12px">🔴 Potongan</h3>
+        <form id="formAddPotongan" style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="addNamaPotongan" required placeholder="Nama item potongan"
+            style="flex:1;padding:8px 12px;border:2px solid var(--slate-200);border-radius:var(--radius-sm);font-size:.85rem;outline:none;font-family:var(--font-body)">
+          <button type="submit" class="btn btn-primary" style="padding:8px 16px;font-size:.85rem;white-space:nowrap">+ Tambah</button>
+        </form>
+        <div class="table-container">
+          <table>
+            <thead><tr><th style="width:50px">#</th><th>Nama Item</th><th style="width:80px;text-align:center">Aksi</th></tr></thead>
+            <tbody id="tbodyPotongan"><tr><td colspan="3" style="text-align:center;color:var(--slate-400);padding:24px">Memuat...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  loadMasterItems(main);
+
+  main.querySelector('#formAddTunjangan').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nama = main.querySelector('#addNamaTunjangan').value.trim();
+    if (!nama) return;
+    try {
+      await api('/pendapatan/master-items', { method: 'POST', body: JSON.stringify({ nama, jenis: 'tunjangan' }) });
+      main.querySelector('#addNamaTunjangan').value = '';
+      notify('Item tunjangan berhasil ditambahkan', 'success');
+      loadMasterItems(main);
+    } catch (err) { notify(err.message, 'error'); }
+  });
+
+  main.querySelector('#formAddPotongan').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nama = main.querySelector('#addNamaPotongan').value.trim();
+    if (!nama) return;
+    try {
+      await api('/pendapatan/master-items', { method: 'POST', body: JSON.stringify({ nama, jenis: 'potongan' }) });
+      main.querySelector('#addNamaPotongan').value = '';
+      notify('Item potongan berhasil ditambahkan', 'success');
+      loadMasterItems(main);
+    } catch (err) { notify(err.message, 'error'); }
+  });
+}
+
+async function loadMasterItems(main) {
+  try {
+    const items = await api('/pendapatan/master-items');
+    const tun = items.filter(i => i.jenis === 'tunjangan');
+    const pot = items.filter(i => i.jenis === 'potongan');
+
+    const renderRows = (list) => list.length === 0
+      ? '<tr><td colspan="3" style="text-align:center;color:var(--slate-400);padding:24px">Belum ada item</td></tr>'
+      : list.map((it, idx) => `
+        <tr>
+          <td style="color:var(--slate-400)">${idx + 1}</td>
+          <td><strong>${sanitize(it.nama)}</strong></td>
+          <td style="text-align:center">
+            <button class="btn btn-danger btn-delete-master" data-id="${it.id}" data-nama="${sanitize(it.nama)}" style="padding:4px 10px;font-size:.75rem">Hapus</button>
+          </td>
+        </tr>
+      `).join('');
+
+    main.querySelector('#tbodyTunjangan').innerHTML = renderRows(tun);
+    main.querySelector('#tbodyPotongan').innerHTML = renderRows(pot);
+
+    main.querySelectorAll('.btn-delete-master').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const nama = btn.dataset.nama;
+        if (!confirm(`Hapus item "${nama}"? Item yang sudah tersimpan di slip dokter tidak akan terhapus, hanya master item ini saja.`)) return;
+        try {
+          await api(`/pendapatan/master-items/${id}`, { method: 'DELETE' });
+          notify('Item berhasil dihapus', 'success');
+          loadMasterItems(main);
+        } catch (err) { notify(err.message, 'error'); }
+      });
+    });
+  } catch (err) { notify(err.message, 'error'); }
+}
+
 /* ─── PENDAPATAN & POTONGAN ─── */
 function renderPendapatan(main) {
   main.innerHTML = `
@@ -932,218 +1264,325 @@ function renderPendapatan(main) {
     });
   });
 
+  function slugify(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+
+  async function renderManualForm() {
+    const [defaultItems, dokterList, periodes, tahunList] = await Promise.all([
+      api('/pendapatan/master-items'),
+      api('/dokter'),
+      api('/gaji/periode'),
+      api('/gaji/tahun')
+    ]);
+
+    let rows = defaultItems.map(i => ({ jenis: i.jenis, nama: i.nama, nilai: 0 }));
+
+    function rowHtml(r) {
+      const id = r._id || Math.random().toString(36).slice(2);
+      return `<tr data-id="${id}">
+        <td>
+          <select id="fp-jenis-${id}" name="fp-jenis-${id}" class="fp-jenis" style="width:120px;padding:8px 10px;border:2px solid var(--slate-200);border-radius:var(--radius-sm);font-size:.85rem;outline:none;font-family:var(--font-body);background:#fff">
+            <option value="tunjangan"${r.jenis === 'tunjangan' ? ' selected' : ''}>Tunjangan</option>
+            <option value="potongan"${r.jenis === 'potongan' ? ' selected' : ''}>Potongan</option>
+          </select>
+        </td>
+        <td><input type="text" id="fp-item-${id}" name="fp-item-${id}" class="fp-item" value="${sanitize(r.nama)}" style="width:100%;min-width:160px;padding:8px 12px;border:2px solid var(--slate-200);border-radius:var(--radius-sm);font-size:.85rem;outline:none;font-family:var(--font-body)"></td>
+        <td style="text-align:right"><input type="number" id="fp-nilai-${id}" name="fp-nilai-${id}" class="fp-nilai" step="1" value="${r.nilai}" style="width:160px;padding:8px 12px;border:2px solid var(--slate-200);border-radius:var(--radius-sm);font-size:.85rem;text-align:right;font-family:var(--font-heading);outline:none"></td>
+        <td style="text-align:center"><button type="button" id="fp-del-${id}" class="fp-delete" style="background:none;border:none;color:var(--slate-400);cursor:pointer;font-size:1.2rem;line-height:1;padding:4px 6px">&times;</button></td>
+      </tr>`;
+    }
+
+    function renderTable() {
+      let tunjangan = 0, potongan = 0;
+      for (const r of rows) {
+        if (r.jenis === 'tunjangan') tunjangan += r.nilai;
+        else potongan += r.nilai;
+      }
+      const tbody = content.querySelector('#fpTableBody');
+      if (tbody) tbody.innerHTML = rows.map(rowHtml).join('');
+      const st = content.querySelector('#subtotalTunjangan');
+      const sp = content.querySelector('#subtotalPotongan');
+      const tt = content.querySelector('#totalBersih');
+      if (st) st.textContent = `Rp ${tunjangan.toLocaleString()}`;
+      if (sp) sp.textContent = `Rp ${potongan.toLocaleString()}`;
+      if (tt) tt.textContent = `Rp ${(tunjangan - potongan).toLocaleString()}`;
+      attachRowEvents();
+    }
+
+    _pendapatanDeleter = (id) => {
+      rows = rows.filter(r => r._id !== id);
+      renderTable();
+    };
+
+    function attachRowEvents() {
+      content.querySelectorAll('.fp-nilai, .fp-jenis').forEach(el => {
+        el.addEventListener('change', () => {
+          const tr = el.closest('tr');
+          const id = tr.dataset.id;
+          const row = rows.find(r => r._id === id);
+          if (row) {
+            row.jenis = tr.querySelector('.fp-jenis').value;
+            row.nilai = Number(tr.querySelector('.fp-nilai').value) || 0;
+            renderTable();
+          }
+        });
+        el.addEventListener('input', () => {
+          if (el.classList.contains('fp-nilai')) {
+            const tr = el.closest('tr');
+            const id = tr.dataset.id;
+            const row = rows.find(r => r._id === id);
+            if (row) {
+              row.nilai = Number(el.value) || 0;
+              renderTable();
+            }
+          }
+        });
+      });
+      content.querySelectorAll('.fp-item').forEach(el => {
+        el.addEventListener('change', () => {
+          const tr = el.closest('tr');
+          const id = tr.dataset.id;
+          const row = rows.find(r => r._id === id);
+          if (row) row.nama = el.value;
+        });
+      });
+    }
+
+    function syncRowsFromDOM() {
+      rows = [];
+      content.querySelectorAll('#fpTableBody tr').forEach(tr => {
+        const jenis = tr.querySelector('.fp-jenis').value;
+        const nama = tr.querySelector('.fp-item').value.trim();
+        const nilai = Number(tr.querySelector('.fp-nilai').value) || 0;
+        if (nama) rows.push({ _id: tr.dataset.id, jenis, nama, nilai });
+      });
+    }
+
+    content.innerHTML = `
+      <div class="card">
+        <style>.fp-jenis:focus,.fp-item:focus,.fp-nilai:focus { border-color:var(--emerald-500) !important; box-shadow:0 0 0 3px rgba(16,185,129,.15) !important; }</style>
+        <form id="formPendapatan">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+            <div style="flex:1;min-width:200px">
+              <label for="fpDokter">Dokter</label>
+              <select id="fpDokter" required></select>
+            </div>
+            <div style="flex:1;min-width:120px">
+              <label for="fpTahun">Tahun</label>
+              <select id="fpTahun"><option value="">-- Semua --</option></select>
+            </div>
+            <div style="flex:1;min-width:160px">
+              <label for="fpBulan">Bulan</label>
+              <select id="fpBulan" required></select>
+            </div>
+          </div>
+
+          <div class="table-container" style="margin-bottom:16px">
+            <table class="recap-table" style="text-align:left">
+              <thead>
+                <tr><th style="text-align:left;width:130px">Jenis</th><th style="text-align:left">Item</th><th style="text-align:right;width:220px">Nominal</th><th style="width:40px"></th></tr>
+              </thead>
+              <tbody id="fpTableBody">
+                ${rows.map(r => { r._id = Math.random().toString(36).slice(2); return rowHtml(r); }).join('')}
+              </tbody>
+              <tfoot>
+                <tr class="subtotal-row"><td></td><td style="font-weight:600">Subtotal Tunjangan</td><td id="subtotalTunjangan" style="text-align:right;font-weight:600;font-family:var(--font-heading);color:var(--emerald-700)">Rp 0</td><td></td></tr>
+                <tr class="subtotal-row"><td></td><td style="font-weight:600">Subtotal Potongan</td><td id="subtotalPotongan" style="text-align:right;font-weight:600;font-family:var(--font-heading);color:#dc2626">Rp 0</td><td></td></tr>
+                <tr style="background:var(--emerald-600);color:#fff">
+                  <td colspan="2" style="font-weight:800;font-family:var(--font-heading);font-size:1rem">TOTAL BERSIH</td>
+                  <td id="totalBersih" style="text-align:right;font-weight:800;font-family:var(--font-heading);font-size:1rem">Rp 0</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="btn btn-outline" id="addRowBtn">+ Tambah Baris</button>
+            <button type="submit" class="btn btn-primary">Simpan</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    const selDokter = content.querySelector('#fpDokter');
+    const selBulan = content.querySelector('#fpBulan');
+    const selTahun = content.querySelector('#fpTahun');
+
+    dokterList.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.nip;
+      opt.textContent = `${d.nama} (${d.nip})`;
+      selDokter.appendChild(opt);
+    });
+    tahunList.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      selTahun.appendChild(opt);
+    });
+    periodes.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      selBulan.appendChild(opt);
+    });
+
+    attachRowEvents();
+    renderTable();
+
+    content.querySelector('#addRowBtn').addEventListener('click', () => {
+      rows.push({ _id: Math.random().toString(36).slice(2), jenis: 'tunjangan', nama: '', nilai: 0 });
+      renderTable();
+    });
+
+    const loadData = () => {
+      const nip = selDokter.value;
+      const bulan = selBulan.value;
+      if (nip && bulan) {
+        api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`).then(data => {
+          if (data && data.detail && data.detail.length) {
+            rows = data.detail.map(d => ({ _id: Math.random().toString(36).slice(2), jenis: d.jenis, nama: d.nama, nilai: Number(d.nilai) || 0 }));
+          } else {
+            rows = defaultItems.map(i => ({ _id: Math.random().toString(36).slice(2), jenis: i.jenis, nama: i.nama, nilai: 0 }));
+          }
+          renderTable();
+        }).catch(() => {});
+      }
+    };
+
+    selDokter.addEventListener('change', loadData);
+    selBulan.addEventListener('change', loadData);
+    loadData();
+
+    content.querySelector('#formPendapatan').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      syncRowsFromDOM();
+      const nip = selDokter.value;
+      const bulan = selBulan.value;
+      if (!nip || !bulan) return notify('Pilih dokter dan bulan', 'error');
+      const dokter = selDokter.options[selDokter.selectedIndex].text;
+      const detail = rows.filter(r => r.nama.trim()).map(r => ({ nama: r.nama.trim(), jenis: r.jenis, nilai: r.nilai }));
+      const payload = { nip, nm_dokter: dokter.split(' (')[0], bulan, detail };
+      const btn = e.target.querySelector('.btn-primary');
+      btn.disabled = true; btn.textContent = 'Menyimpan...';
+      try {
+        await api('/pendapatan', { method: 'POST', body: JSON.stringify(payload) });
+        notify('Data pendapatan & potongan berhasil disimpan', 'success');
+      } catch (err) { notify(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Simpan';
+    });
+  }
+
+  async function renderUploadForm() {
+    let items = await api('/pendapatan/master-items');
+    let cols = ['nip', 'nm_dokter', 'bulan', ...items.map(i => i.nama)];
+    let sample = ['123456', 'Dr. Contoh', 'Januari 2026', ...items.map(() => '0')];
+
+    function renderTemplateInfo() {
+      const code = content.querySelector('#colsList');
+      if (code) code.textContent = cols.join(', ');
+    }
+
+    content.innerHTML = `
+      <div class="card">
+        <form id="uploadFormPendapatan">
+          <div class="upload-zone" id="uploadZonePendapatan">
+            <div class="icon">📂</div>
+            <p>Klik atau seret file ke sini</p>
+            <p class="hint">Format: CSV, XLS, XLSX (maks 5MB)</p>
+          </div>
+          <input type="file" id="fileInputPendapatan" accept=".csv,.xls,.xlsx" style="display:none">
+          <div id="fileInfoPendapatan" style="display:none;margin-top:16px;padding:12px;background:var(--emerald-50);border-radius:var(--radius-sm)">
+            <p style="font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)">📄 <span id="fileNamePendapatan"></span></p>
+          </div>
+          <button type="submit" class="btn btn-primary" style="margin-top:20px;width:100%" id="btnUploadPendapatan">Upload & Proses</button>
+        </form>
+        <div style="margin-top:20px;padding:16px;background:var(--slate-50);border-radius:var(--radius-sm);font-size:.85rem;color:var(--slate-600)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <strong style="color:var(--slate-800)">Format kolom yang didukung:</strong>
+            <button type="button" class="btn btn-outline" id="btnRefreshTemplate" style="padding:4px 12px;font-size:.75rem" title="Muat ulang daftar master item">↻ Segarkan</button>
+          </div>
+          <code id="colsList">${cols.join(', ')}</code>
+          <button type="button" class="btn btn-outline" style="margin-top:12px" id="btnDownloadTemplate">Download Contoh CSV</button>
+        </div>
+      </div>
+    `;
+
+    const zone = content.querySelector('#uploadZonePendapatan');
+    const input = content.querySelector('#fileInputPendapatan');
+    const fileInfo = content.querySelector('#fileInfoPendapatan');
+    const fileName = content.querySelector('#fileNamePendapatan');
+
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        fileName.textContent = input.files[0].name;
+        fileInfo.style.display = 'block';
+      }
+    });
+    input.addEventListener('change', () => {
+      if (input.files.length) {
+        fileName.textContent = input.files[0].name;
+        fileInfo.style.display = 'block';
+      }
+    });
+
+    content.querySelector('#btnRefreshTemplate').addEventListener('click', async () => {
+      const btn = content.querySelector('#btnRefreshTemplate');
+      btn.disabled = true; btn.textContent = 'Memuat...';
+      try {
+        items = await api('/pendapatan/master-items');
+        cols = ['nip', 'nm_dokter', 'bulan', ...items.map(i => i.nama)];
+        sample = ['123456', 'Dr. Contoh', 'Januari 2026', ...items.map(() => '0')];
+        renderTemplateInfo();
+        notify('Template diperbarui', 'success');
+      } catch (err) { notify(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = '↻ Segarkan';
+    });
+
+    content.querySelector('#btnDownloadTemplate').addEventListener('click', () => {
+      const csv = cols.join(',') + '\n' + sample.join(',') + '\n';
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'template_pendapatan.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    content.querySelector('#uploadFormPendapatan').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!input.files.length) return notify('Pilih file terlebih dahulu', 'error');
+      const btn = content.querySelector('#btnUploadPendapatan');
+      btn.disabled = true; btn.textContent = 'Memproses...';
+      const formData = new FormData();
+      formData.append('file', input.files[0]);
+      try {
+        const res = await fetch(`${API}/pendapatan/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${state.token}` },
+          body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        notify(data.message, 'success');
+        input.value = '';
+        fileInfo.style.display = 'none';
+      } catch (err) { notify(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Upload & Proses';
+    });
+  }
+
   function renderMode() {
     if (currentMode === 'manual') {
-      content.innerHTML = `
-        <div class="card">
-          <form id="formPendapatan">
-            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
-              <div style="flex:1;min-width:200px">
-                <label for="fpDokter">Dokter</label>
-                <select id="fpDokter" required></select>
-              </div>
-              <div style="flex:1;min-width:160px">
-                <label for="fpBulan">Bulan</label>
-                <select id="fpBulan" required></select>
-              </div>
-            </div>
-
-            <h4 style="margin-bottom:12px;color:var(--slate-700)">Tunjangan</h4>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
-              <div class="form-group"><label>Tunjangan Jabatan</label><input type="number" id="fpTunjab" step="1" value="0"></div>
-              <div class="form-group"><label>Standby Kantor</label><input type="number" id="fpStandby" step="1" value="0"></div>
-              <div class="form-group"><label>Remun Sesuai</label><input type="number" id="fpRemun" step="1" value="0"></div>
-              <div class="form-group"><label>Fee TIM</label><input type="number" id="fpFeeTim" step="1" value="0"></div>
-              <div class="form-group"><label>Tunjangan Kinerja</label><input type="number" id="fpTukin" step="1" value="0"></div>
-            </div>
-
-            <h4 style="margin-bottom:12px;color:var(--slate-700)">Potongan</h4>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
-              <div class="form-group"><label>Potongan Absensi</label><input type="number" id="fpAbsensi" step="1" value="0"></div>
-              <div class="form-group"><label>BPJS Kesehatan</label><input type="number" id="fpBpjs" step="1" value="0"></div>
-              <div class="form-group"><label>Ketenagakerjaan</label><input type="number" id="fpNaker" step="1" value="0"></div>
-              <div class="form-group"><label>PPH 21</label><input type="number" id="fpPph" step="1" value="0"></div>
-              <div class="form-group"><label>Asuransi BUMIDA</label><input type="number" id="fpBumida" step="1" value="0"></div>
-              <div class="form-group"><label>Potongan Lain</label><input type="number" id="fpLain" step="1" value="0"></div>
-            </div>
-
-            <button type="submit" class="btn btn-primary">Simpan</button>
-            <span id="fpTotalInfo" style="margin-left:16px;font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)"></span>
-          </form>
-        </div>
-      `;
-
-      const selDokter = content.querySelector('#fpDokter');
-      const selBulan = content.querySelector('#fpBulan');
-
-      Promise.all([
-        api('/dokter').then(list => {
-          list.forEach(d => {
-            const opt = document.createElement('option');
-            opt.value = d.nip;
-            opt.textContent = `${d.nama} (${d.nip})`;
-            selDokter.appendChild(opt);
-          });
-        }),
-        api('/gaji/periode').then(periodes => {
-          periodes.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p;
-            opt.textContent = p;
-            selBulan.appendChild(opt);
-          });
-        })
-      ]).then(() => {
-        const loadData = () => {
-          const nip = selDokter.value;
-          const bulan = selBulan.value;
-          if (nip && bulan) {
-            api(`/pendapatan/${nip}/${encodeURIComponent(bulan)}`).then(data => {
-              if (data) {
-                content.querySelector('#fpTunjab').value = data.tunjangan_jabatan || 0;
-                content.querySelector('#fpStandby').value = data.standby_kantor || 0;
-                content.querySelector('#fpRemun').value = data.remun_sesuai || 0;
-                content.querySelector('#fpFeeTim').value = data.fee_tim || 0;
-                content.querySelector('#fpTukin').value = data.tunjangan_kinerja || 0;
-                content.querySelector('#fpAbsensi').value = data.absensi || 0;
-                content.querySelector('#fpBpjs').value = data.bpjs_kesehatan || 0;
-                content.querySelector('#fpNaker').value = data.ketenagakerjaan || 0;
-                content.querySelector('#fpPph').value = data.pph21 || 0;
-                content.querySelector('#fpBumida').value = data.bumida || 0;
-                content.querySelector('#fpLain').value = data.lain || 0;
-              }
-              updateTotal(content);
-            }).catch(() => {});
-          }
-        };
-        selDokter.addEventListener('change', loadData);
-        selBulan.addEventListener('change', loadData);
-        loadData();
-      });
-
-      function updateTotal(m) {
-        const g = id => Number(m.querySelector(id).value) || 0;
-        const tunjangan = g('#fpTunjab') + g('#fpStandby') + g('#fpRemun') + g('#fpFeeTim') + g('#fpTukin');
-        const potongan = g('#fpAbsensi') + g('#fpBpjs') + g('#fpNaker') + g('#fpPph') + g('#fpBumida') + g('#fpLain');
-        m.querySelector('#fpTotalInfo').textContent = `Tunjangan: Rp ${tunjangan.toLocaleString()} | Potongan: Rp ${potongan.toLocaleString()} | Bersih: Rp ${(tunjangan - potongan).toLocaleString()}`;
-      }
-
-      content.querySelectorAll('#formPendapatan input[type="number"]').forEach(inp => {
-        inp.addEventListener('input', () => updateTotal(content));
-      });
-
-      content.querySelector('#formPendapatan').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const nipl = selDokter.value;
-        const bulan = selBulan.value;
-        if (!nipl || !bulan) return notify('Pilih dokter dan bulan', 'error');
-        const dokter = selDokter.options[selDokter.selectedIndex].text;
-        const payload = {
-          nip: nipl,
-          nm_dokter: dokter.split(' (')[0],
-          bulan,
-          tunjangan_jabatan: content.querySelector('#fpTunjab').value,
-          standby_kantor: content.querySelector('#fpStandby').value,
-          remun_sesuai: content.querySelector('#fpRemun').value,
-          fee_tim: content.querySelector('#fpFeeTim').value,
-          tunjangan_kinerja: content.querySelector('#fpTukin').value,
-          absensi: content.querySelector('#fpAbsensi').value,
-          bpjs_kesehatan: content.querySelector('#fpBpjs').value,
-          ketenagakerjaan: content.querySelector('#fpNaker').value,
-          pph21: content.querySelector('#fpPph').value,
-          bumida: content.querySelector('#fpBumida').value,
-          lain: content.querySelector('#fpLain').value,
-        };
-        const btn = e.target.querySelector('.btn');
-        btn.disabled = true; btn.textContent = 'Menyimpan...';
-        try {
-          await api('/pendapatan', { method: 'POST', body: JSON.stringify(payload) });
-          notify('Data pendapatan & potongan berhasil disimpan', 'success');
-        } catch (err) { notify(err.message, 'error'); }
-        btn.disabled = false; btn.textContent = 'Simpan';
-      });
+      renderManualForm();
     } else {
-      content.innerHTML = `
-        <div class="card">
-          <form id="uploadFormPendapatan">
-            <div class="upload-zone" id="uploadZonePendapatan">
-              <div class="icon">📂</div>
-              <p>Klik atau seret file ke sini</p>
-              <p class="hint">Format: CSV, XLS, XLSX (maks 5MB)</p>
-            </div>
-            <input type="file" id="fileInputPendapatan" accept=".csv,.xls,.xlsx" style="display:none">
-            <div id="fileInfoPendapatan" style="display:none;margin-top:16px;padding:12px;background:var(--emerald-50);border-radius:var(--radius-sm)">
-              <p style="font-family:var(--font-heading);font-weight:600;color:var(--emerald-700)">📄 <span id="fileNamePendapatan"></span></p>
-            </div>
-            <button type="submit" class="btn btn-primary" style="margin-top:20px;width:100%" id="btnUploadPendapatan">Upload & Proses</button>
-          </form>
-          <div style="margin-top:20px;padding:16px;background:var(--slate-50);border-radius:var(--radius-sm);font-size:.85rem;color:var(--slate-600)">
-            <strong style="color:var(--slate-800)">Format kolom yang didukung:</strong><br>
-            <code>nip, nm_dokter, bulan, tunjangan_jabatan, standby_kantor, remun_sesuai, fee_tim, tunjangan_kinerja, absensi, bpjs_kesehatan, ketenagakerjaan, pph21, bumida, lain</code>
-            <button type="button" class="btn btn-outline" style="margin-top:12px" id="btnDownloadTemplate">Download Contoh CSV</button>
-          </div>
-        </div>
-      `;
-
-      const zone = content.querySelector('#uploadZonePendapatan');
-      const input = content.querySelector('#fileInputPendapatan');
-      const fileInfo = content.querySelector('#fileInfoPendapatan');
-      const fileName = content.querySelector('#fileNamePendapatan');
-
-      zone.addEventListener('click', () => input.click());
-      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
-      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-      zone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        zone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-          input.files = e.dataTransfer.files;
-          fileName.textContent = input.files[0].name;
-          fileInfo.style.display = 'block';
-        }
-      });
-      input.addEventListener('change', () => {
-        if (input.files.length) {
-          fileName.textContent = input.files[0].name;
-          fileInfo.style.display = 'block';
-        }
-      });
-
-      content.querySelector('#btnDownloadTemplate').addEventListener('click', () => {
-        const cols = ['nip','nm_dokter','bulan','tunjangan_jabatan','standby_kantor','remun_sesuai','fee_tim','tunjangan_kinerja','absensi','bpjs_kesehatan','ketenagakerjaan','pph21','bumida','lain'];
-        const sample = ['123456','Dr. Contoh','Januari 2026','500000','300000','1000000','200000','750000','0','150000','200000','250000','100000','0'];
-        const csv = cols.join(',') + '\n' + sample.join(',') + '\n';
-        const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'template_pendapatan.csv';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      });
-
-      content.querySelector('#uploadFormPendapatan').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        if (!input.files.length) return notify('Pilih file terlebih dahulu', 'error');
-        const btn = content.querySelector('#btnUploadPendapatan');
-        btn.disabled = true; btn.textContent = 'Memproses...';
-
-        const formData = new FormData();
-        formData.append('file', input.files[0]);
-
-        try {
-          const res = await fetch(`${API}/pendapatan/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${state.token}` },
-            body: formData
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
-          notify(data.message, 'success');
-          input.value = '';
-          fileInfo.style.display = 'none';
-        } catch (err) { notify(err.message, 'error'); }
-        btn.disabled = false; btn.textContent = 'Upload & Proses';
-      });
+      renderUploadForm();
     }
   }
 

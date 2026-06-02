@@ -14,6 +14,7 @@ function getDb() {
     initSchema();
     migrateSchema();
     seedAdmin();
+    seedMasterItems();
   }
   return db;
 }
@@ -28,7 +29,15 @@ function migrateSchema() {
   addCol('tanggal', 'TEXT');
   addCol('nm_tindakan', 'TEXT');
   addCol('pending', 'INT DEFAULT 0');
+  addCol('tahun', 'TEXT');
 
+  db.exec(`UPDATE gaji SET tahun = TRIM(SUBSTR(bulan, INSTR(bulan, ' ') + 1)) WHERE tahun IS NULL AND bulan LIKE '% %'`);
+  db.exec(`UPDATE gaji SET tahun = '20' || SUBSTR(tanggal, -2) WHERE tahun IS NULL AND tanggal LIKE '%/%'`);
+
+  const pdCols = db.prepare("PRAGMA table_info(slip_pendapatan)").all().map(c => c.name.toLowerCase());
+  if (!pdCols.includes('detail')) {
+    db.exec("ALTER TABLE slip_pendapatan ADD COLUMN detail TEXT DEFAULT '[]'");
+  }
 }
 
 function initSchema() {
@@ -92,6 +101,13 @@ function initSchema() {
       updated_at TEXT DEFAULT (datetime('now','localtime')),
       UNIQUE(nip, bulan)
     );
+
+    CREATE TABLE IF NOT EXISTS master_pendapatan_item (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nama TEXT NOT NULL,
+      jenis TEXT NOT NULL CHECK(jenis IN ('tunjangan', 'potongan')),
+      urutan INTEGER DEFAULT 0
+    );
   `);
 }
 
@@ -102,6 +118,30 @@ function seedAdmin() {
     db.prepare('INSERT INTO admin (email, password) VALUES (?, ?)').run('admin@keuangan.com', hash);
     console.log('[seed] Default admin created: admin@keuangan.com / admin123');
   }
+}
+
+function seedMasterItems() {
+  const existing = db.prepare('SELECT id FROM master_pendapatan_item LIMIT 1').get();
+  if (existing) return;
+  const items = [
+    ['Tunjangan Jabatan', 'tunjangan', 1],
+    ['Standby Kantor', 'tunjangan', 2],
+    ['Remun Sesuai', 'tunjangan', 3],
+    ['Fee TIM', 'tunjangan', 4],
+    ['Tunjangan Kinerja', 'tunjangan', 5],
+    ['Potongan Absensi', 'potongan', 1],
+    ['BPJS Kesehatan', 'potongan', 2],
+    ['Ketenagakerjaan', 'potongan', 3],
+    ['PPH 21', 'potongan', 4],
+    ['Asuransi BUMIDA', 'potongan', 5],
+    ['Potongan Lain', 'potongan', 6],
+  ];
+  const stmt = db.prepare('INSERT INTO master_pendapatan_item (nama, jenis, urutan) VALUES (?, ?, ?)');
+  const seed = db.transaction(() => {
+    for (const item of items) stmt.run(...item);
+  });
+  seed();
+  console.log('[seed] Default master pendapatan items created');
 }
 
 module.exports = { getDb };

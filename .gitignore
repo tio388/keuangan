@@ -1,6 +1,8 @@
 node_modules/
 uploads/
 keuangan.db
+keuangan.db-shm
+keuangan.db-wal
 .env
 .env.local
 *.log
