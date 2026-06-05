@@ -31,12 +31,53 @@ function migrateSchema() {
   addCol('pending', 'INT DEFAULT 0');
   addCol('tahun', 'TEXT');
 
-  db.exec(`UPDATE gaji SET tahun = TRIM(SUBSTR(bulan, INSTR(bulan, ' ') + 1)) WHERE tahun IS NULL AND bulan LIKE '% %'`);
-  db.exec(`UPDATE gaji SET tahun = '20' || SUBSTR(tanggal, -2) WHERE tahun IS NULL AND tanggal LIKE '%/%'`);
+  db.exec(`UPDATE gaji SET tahun = TRIM(SUBSTR(bulan, INSTR(bulan, ' ') + 1)) WHERE (tahun IS NULL OR tahun = '') AND bulan LIKE '% %'`);
+  db.exec(`UPDATE gaji SET tahun = '20' || SUBSTR(tanggal, -2) WHERE (tahun IS NULL OR tahun = '') AND tanggal LIKE '%/%'`);
+  db.exec(`UPDATE gaji SET tahun = SUBSTR(tanggal, 1, 4) WHERE (tahun IS NULL OR tahun = '') AND tanggal LIKE '%-%' AND LENGTH(tanggal) >= 4`);
+  db.exec("UPDATE gaji SET tahun = '20' || SUBSTR(tanggal, -2) WHERE tahun IN ('Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember','January','February','March','May','June','July','August','October','November','December') AND tanggal LIKE '%/%'");
+  const monthList = "'Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember','January','February','March','May','June','July','August','October','November','December'";
+  db.exec(`UPDATE gaji SET tahun = TRIM(SUBSTR(bulan, INSTR(bulan, ' ') + 1)) WHERE tahun IN (${monthList}) AND bulan LIKE '% %'`);
+  db.exec(`UPDATE gaji SET tahun = '' WHERE tahun IN (${monthList})`);
 
   const pdCols = db.prepare("PRAGMA table_info(slip_pendapatan)").all().map(c => c.name.toLowerCase());
   if (!pdCols.includes('detail')) {
     db.exec("ALTER TABLE slip_pendapatan ADD COLUMN detail TEXT DEFAULT '[]'");
+  }
+
+  // Migrasi: hapus constraint NOT NULL/UNIQUE pada kolom email tabel dokter
+  const dokterCols = db.prepare("PRAGMA table_info(dokter)").all();
+  const emailCol = dokterCols.find(c => c.name.toLowerCase() === 'email');
+  if (emailCol && (emailCol.notnull === 1 || emailCol.pk === 0)) {
+    // SQLite tidak bisa ALTER COLUMN langsung, rebuild tabel
+    const hasEmailUnique = db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='dokter' AND sql LIKE '%email%'").get();
+    if (hasEmailUnique) {
+      db.exec("DROP INDEX IF EXISTS sqlite_autoindex_dokter_2");
+      db.exec("DROP INDEX IF EXISTS dokter_email_unique");
+    }
+    // Hapus duplikat email (sisakan satu per nilai) sebelum rebuild
+    db.exec(`
+      DELETE FROM dokter WHERE id NOT IN (
+        SELECT MIN(id) FROM dokter WHERE email != '' AND email IS NOT NULL GROUP BY email
+      ) AND email IN (SELECT email FROM dokter WHERE email != '' AND email IS NOT NULL GROUP BY email HAVING COUNT(*) > 1)
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS dokter_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nip TEXT NOT NULL UNIQUE,
+        nama TEXT NOT NULL,
+        poliklinik TEXT NOT NULL,
+        email TEXT DEFAULT '',
+        password TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now','localtime'))
+      )
+    `);
+    db.exec(`
+      INSERT INTO dokter_new (id, nip, nama, poliklinik, email, password, created_at)
+      SELECT id, nip, nama, poliklinik, COALESCE(email, ''), password, created_at FROM dokter
+    `);
+    db.exec("DROP TABLE dokter");
+    db.exec("ALTER TABLE dokter_new RENAME TO dokter");
+    console.log('[migrate] Removed NOT NULL/UNIQUE constraint on dokter.email');
   }
 }
 
@@ -54,7 +95,7 @@ function initSchema() {
       nip TEXT NOT NULL UNIQUE,
       nama TEXT NOT NULL,
       poliklinik TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
+      email TEXT DEFAULT '',
       password TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now','localtime'))
     );

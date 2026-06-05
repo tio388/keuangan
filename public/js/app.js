@@ -44,8 +44,8 @@ function renderLogin() {
         </div>
         <form id="loginForm">
           <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" placeholder="Masukkan email" required autocomplete="email">
+            <label for="identifier" id="labelIdentifier">NIP</label>
+            <input type="text" id="identifier" placeholder="Masukkan NIP" required autocomplete="username">
           </div>
           <div class="form-group">
             <label for="password">Password</label>
@@ -59,17 +59,34 @@ function renderLogin() {
 
   let selectedRole = 'dokter';
 
+  const updateIdentifierField = () => {
+    const label = app.querySelector('#labelIdentifier');
+    const input = app.querySelector('#identifier');
+    if (selectedRole === 'admin') {
+      label.textContent = 'Email';
+      input.placeholder = 'Masukkan email';
+      input.type = 'email';
+      input.autocomplete = 'email';
+    } else {
+      label.textContent = 'NIP';
+      input.placeholder = 'Masukkan NIP';
+      input.type = 'text';
+      input.autocomplete = 'username';
+    }
+  };
+
   app.querySelectorAll('.role-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       app.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedRole = btn.dataset.role;
+      updateIdentifierField();
     });
   });
 
   app.querySelector('#loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = app.querySelector('#email').value;
+    const identifier = app.querySelector('#identifier').value;
     const password = app.querySelector('#password').value;
     const btn = app.querySelector('#loginForm .btn');
     btn.disabled = true; btn.textContent = 'Memproses...';
@@ -77,7 +94,7 @@ function renderLogin() {
     try {
       const data = await api('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password, role: selectedRole })
+        body: JSON.stringify({ identifier, password, role: selectedRole })
       });
       state.token = data.token;
       state.user = data.user;
@@ -217,6 +234,7 @@ async function loadDokterTable(main) {
         <td>${sanitize(d.poliklinik)}</td>
         <td>${sanitize(d.email)}</td>
         <td class="table-actions">
+          <button class="btn btn-outline btn-edit-dokter" data-id="${d.id}" style="padding:6px 12px;font-size:.8rem">Edit</button>
           <button class="btn btn-danger btn-delete" data-id="${d.id}" style="padding:6px 12px;font-size:.8rem">Hapus</button>
         </td>
       </tr>
@@ -232,39 +250,46 @@ async function loadDokterTable(main) {
         } catch (err) { notify(err.message, 'error'); }
       });
     });
+
+    tbody.querySelectorAll('.btn-edit-dokter').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        try {
+          const dokter = list.find(d => String(d.id) === id);
+          showDokterModal(dokter);
+        } catch (err) { notify(err.message, 'error'); }
+      });
+    });
   } catch (err) { notify(err.message, 'error'); }
 }
 
-function showDokterModal() {
+function showDokterModal(dokter) {
+  const isEdit = !!dokter;
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal">
-      <h3>Tambah Dokter</h3>
+      <h3>${isEdit ? 'Edit Dokter' : 'Tambah Dokter'}</h3>
       <form id="formDokter">
         <div class="form-group">
           <label for="fnip">NIP</label>
-          <input type="text" id="fnip" required placeholder="Nomor Induk Pegawai">
+          <input type="text" id="fnip" required placeholder="Nomor Induk Pegawai" value="${isEdit ? sanitize(dokter.nip) : ''}">
         </div>
         <div class="form-group">
           <label for="fnama">Nama Lengkap</label>
-          <input type="text" id="fnama" required placeholder="Nama dokter">
+          <input type="text" id="fnama" required placeholder="Nama dokter" value="${isEdit ? sanitize(dokter.nama) : ''}">
         </div>
         <div class="form-group">
           <label for="fpoli">Poliklinik</label>
-          <input type="text" id="fpoli" required placeholder="Poliklinik">
+          <input type="text" id="fpoli" required placeholder="Poliklinik" value="${isEdit ? sanitize(dokter.poliklinik) : ''}">
         </div>
         <div class="form-group">
-          <label for="femail">Email</label>
-          <input type="email" id="femail" required placeholder="Email">
-        </div>
-        <div class="form-group">
-          <label for="fpassword">Password</label>
-          <input type="password" id="fpassword" required placeholder="Password">
+          <label for="fpassword">Password ${isEdit ? '<small style="color:var(--slate-400);font-weight:400">(kosongkan jika tidak diubah)</small>' : ''}</label>
+          <input type="password" id="fpassword" ${isEdit ? '' : 'required'} placeholder="${isEdit ? '••••••••' : 'Password'}">
         </div>
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="btnCancel">Batal</button>
-          <button type="submit" class="btn btn-primary">Simpan</button>
+          <button type="submit" class="btn btn-primary">${isEdit ? 'Simpan Perubahan' : 'Simpan'}</button>
         </div>
       </form>
     </div>
@@ -276,21 +301,37 @@ function showDokterModal() {
 
   overlay.querySelector('#formDokter').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const nipEl = overlay.querySelector('#fnip');
+    const namaEl = overlay.querySelector('#fnama');
+    const poliEl = overlay.querySelector('#fpoli');
+    const passEl = overlay.querySelector('#fpassword');
+    if (!nipEl || !namaEl || !poliEl || !passEl) {
+      return notify('Form tidak lengkap, silakan refresh halaman', 'error');
+    }
+    const passwordVal = passEl.value;
+    if (!isEdit && !passwordVal.trim()) {
+      return notify('Password wajib diisi untuk dokter baru', 'error');
+    }
     const data = {
-      nip: overlay.querySelector('#fnip').value,
-      nama: overlay.querySelector('#fnama').value,
-      poliklinik: overlay.querySelector('#fpoli').value,
-      email: overlay.querySelector('#femail').value,
-      password: overlay.querySelector('#fpassword').value
+      nip: nipEl.value.trim(),
+      nama: namaEl.value.trim(),
+      poliklinik: poliEl.value.trim(),
     };
+    if (passwordVal.trim() !== '') data.password = passwordVal;
     const btn = overlay.querySelector('#formDokter .btn-primary');
     btn.disabled = true; btn.textContent = 'Menyimpan...';
     try {
-      await api('/dokter', { method: 'POST', body: JSON.stringify(data) });
-      notify('Dokter berhasil ditambahkan', 'success');
+      if (isEdit) {
+        await api(`/dokter/${dokter.id}`, { method: 'PUT', body: JSON.stringify(data) });
+        notify('Data dokter berhasil diperbarui', 'success');
+      } else {
+        data.password = passwordVal;
+        await api('/dokter', { method: 'POST', body: JSON.stringify(data) });
+        notify('Dokter berhasil ditambahkan', 'success');
+      }
       overlay.remove();
       loadDokterTable(document.getElementById('mainContent'));
-    } catch (err) { notify(err.message, 'error'); btn.disabled = false; btn.textContent = 'Simpan'; }
+    } catch (err) { notify(err.message, 'error'); btn.disabled = false; btn.textContent = isEdit ? 'Simpan Perubahan' : 'Simpan'; }
   });
 }
 
@@ -404,6 +445,9 @@ function renderSlip(main) {
         <input type="text" id="filterNama" placeholder="Ketik nama dokter..." autocomplete="off">
         <div class="searchable-dropdown" id="filterNamaDropdown"></div>
       </div>` : ''}
+      <select id="filterTahun" style="max-width:120px">
+        <option value="">Semua Tahun</option>
+      </select>
       <select id="filterBulan" style="max-width:160px">
         <option value="">Semua Bulan</option>
       </select>
@@ -418,17 +462,21 @@ function renderSlip(main) {
   `;
 
   const filterBulan = main.querySelector('#filterBulan');
+  const filterTahun = main.querySelector('#filterTahun');
   window._tindakanFilter = '';
 
   Promise.all([
     loadFilterBulan(main),
     loadFilterTindakan(main),
+    loadFilterTahun(main),
     state.user.role === 'admin' ? loadFilterDokter(main) : Promise.resolve()
   ]).then(() => {
-    filterBulan.addEventListener('change', () => {
-      loadSlipData(main, window._namaFilter || '', filterBulan.value, window._tindakanFilter || '');
-    });
-    loadSlipData(main, '', '', '');
+    const applyFilters = () => {
+      loadSlipData(main, window._namaFilter || '', filterBulan.value, window._tindakanFilter || '', filterTahun.value);
+    };
+    filterBulan.addEventListener('change', applyFilters);
+    filterTahun.addEventListener('change', applyFilters);
+    loadSlipData(main, '', '', '', '');
   });
 }
 
@@ -510,6 +558,19 @@ async function loadFilterBulan(main) {
   } catch (err) { console.error(err); }
 }
 
+async function loadFilterTahun(main) {
+  try {
+    const tahunList = await api('/gaji/tahun');
+    const select = main.querySelector('#filterTahun');
+    tahunList.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      select.appendChild(opt);
+    });
+  } catch (err) { console.error(err); }
+}
+
 let _slipPage = 1;
 const _slipPerPage = 50;
 let _slipData = [];
@@ -526,12 +587,13 @@ document.addEventListener('click', (e) => {
   }
 });
 
-async function loadSlipData(main, namaFilter, bulanFilter, tindakanFilter) {
+async function loadSlipData(main, namaFilter, bulanFilter, tindakanFilter, tahunFilter) {
   const grid = main.querySelector('#slipGrid');
   try {
     _slipData = await api('/gaji/slip');
 
     if (namaFilter) _slipData = _slipData.filter(d => d.nm_dokter === namaFilter);
+    if (tahunFilter) _slipData = _slipData.filter(d => d.tahun === tahunFilter);
     if (bulanFilter) _slipData = _slipData.filter(d => d.bulan === bulanFilter);
     if (tindakanFilter) _slipData = _slipData.filter(d => d.tindakan === tindakanFilter);
 
@@ -599,7 +661,10 @@ function renderSlipPage(grid) {
             <td>${sanitize(d.pembayaran || '-')}</td>
             <td>${sanitize(d.tindakan || '-')}</td>
             <td class="text-right">Rp ${Number(d.JM_dokter).toLocaleString()}</td>
-            ${state.user.role === 'admin' ? `<td style="text-align:center"><button class="btn btn-sm btn-edit" data-id="${d.id}" style="padding:4px 8px;font-size:.75rem">✏️</button></td>` : ''}
+            ${state.user.role === 'admin' ? `<td style="text-align:center;white-space:nowrap">
+              <button class="btn btn-sm btn-edit" data-id="${d.id}" style="padding:4px 8px;font-size:.75rem">✏️</button>
+              <button class="btn btn-sm btn-delete-gaji" data-id="${d.id}" style="padding:4px 8px;font-size:.75rem;background:var(--red-500);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer">🗑️</button>
+            </td>` : ''}
           </tr>
         `).join('')}
       </tbody>
@@ -621,9 +686,19 @@ function renderSlipPage(grid) {
         try {
           const data = await api(`/gaji/slip/${id}`);
           showEditGajiModal(data, () => {
-            // Refresh data setelah update
             loadSlipData(document.getElementById('mainContent'), window._namaFilter || '', document.getElementById('filterBulan')?.value || '', window._tindakanFilter || '');
           });
+        } catch (err) { notify(err.message, 'error'); }
+      });
+    });
+
+    grid.querySelectorAll('.btn-delete-gaji').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Hapus data gaji ini?')) return;
+        try {
+          await api(`/gaji/${btn.dataset.id}`, { method: 'DELETE' });
+          notify('Data gaji berhasil dihapus', 'success');
+          loadSlipData(document.getElementById('mainContent'), window._namaFilter || '', document.getElementById('filterBulan')?.value || '', window._tindakanFilter || '');
         } catch (err) { notify(err.message, 'error'); }
       });
     });
@@ -853,47 +928,53 @@ async function loadSlipRecap(main, nip, bulan, tahun) {
 
     const groups = {};
     for (const d of data) {
+      const poli = (d.poliklinik || '').trim() || '-';
       const tKey = d.nm_tindakan;
-      if (!groups[tKey]) groups[tKey] = { polikliniks: new Set() };
+      if (!groups[poli]) groups[poli] = {};
+      if (!groups[poli][tKey]) groups[poli][tKey] = {};
       const payment = String(d.pembayaran || '').toLowerCase().includes('bpjs') ? 'BPJS KESEHATAN' : 'UMUM';
-      if (!groups[tKey][payment]) groups[tKey][payment] = { tarif: Number(d.tarif), jumlah: 0 };
-      groups[tKey][payment].jumlah++;
-      if (d.poliklinik) groups[tKey].polikliniks.add(d.poliklinik);
+      if (!groups[poli][tKey][payment]) groups[poli][tKey][payment] = { tarif: Number(d.tarif), jumlah: 0 };
+      groups[poli][tKey][payment].jumlah++;
     }
 
     let grandTotal = 0;
     let no = 0;
     let rows = '';
 
-    for (const [tindakan, grp] of Object.entries(groups)) {
-      no++;
-      let tindakanTotal = 0;
-      const perawatan = [...grp.polikliniks].filter(Boolean).join(', ') || '-';
+    const sortedPolis = Object.keys(groups).sort();
+    for (const poli of sortedPolis) {
+      const tindakans = groups[poli];
+      const sortedTindakans = Object.keys(tindakans).sort();
 
-      rows += `<tr class="tindakan-title">
-        <td>${no}</td>
-        <td><strong>${sanitize(tindakan)}</strong></td>
-        <td>${sanitize(perawatan)}</td>
-        <td></td>
-        <td></td>
-        <td></td>
-      </tr>`;
+      for (const tindakan of sortedTindakans) {
+        no++;
+        let tindakanTotal = 0;
+        const grp = tindakans[tindakan];
 
-      for (const [payment, info] of Object.entries(grp)) {
-        if (payment === 'polikliniks') continue;
-        const subtotal = info.tarif * info.jumlah;
-        tindakanTotal += subtotal;
-        rows += `<tr class="tindakan-sub">
+        rows += `<tr class="tindakan-title">
+          <td>${no}</td>
+          <td><strong>${sanitize(tindakan)}</strong></td>
+          <td>${sanitize(poli)}</td>
           <td></td>
-          <td style="padding-left:32px">${sanitize(payment)}</td>
           <td></td>
-          <td>Rp ${info.tarif.toLocaleString()}</td>
-          <td>${info.jumlah}</td>
-          <td class="value">Rp ${subtotal.toLocaleString()}</td>
+          <td></td>
         </tr>`;
-      }
 
-      grandTotal += tindakanTotal;
+        for (const [payment, info] of Object.entries(grp)) {
+          const subtotal = info.tarif * info.jumlah;
+          tindakanTotal += subtotal;
+          rows += `<tr class="tindakan-sub">
+            <td></td>
+            <td style="padding-left:32px">${sanitize(payment)}</td>
+            <td></td>
+            <td>Rp ${info.tarif.toLocaleString()}</td>
+            <td>${info.jumlah}</td>
+            <td class="value">Rp ${subtotal.toLocaleString()}</td>
+          </tr>`;
+        }
+
+        grandTotal += tindakanTotal;
+      }
     }
 
     let summaryCards = '';
@@ -1006,6 +1087,9 @@ function renderRekapTindakan(main) {
       <select id="rekapTindakanDokter" style="max-width:300px">
         <option value="">-- Semua Dokter --</option>
       </select>
+      <select id="rekapTindakanTahun" style="max-width:120px">
+        <option value="">Semua Tahun</option>
+      </select>
       <select id="rekapTindakanBulan" style="max-width:160px">
         <option value="">Semua Bulan</option>
       </select>
@@ -1033,23 +1117,35 @@ function renderRekapTindakan(main) {
         opt.textContent = p;
         select.appendChild(opt);
       });
+    }),
+    api('/gaji/tahun').then(tahunList => {
+      const select = main.querySelector('#rekapTindakanTahun');
+      tahunList.forEach(y => {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        select.appendChild(opt);
+      });
     })
   ]).then(() => {
     const fd = main.querySelector('#rekapTindakanDokter');
+    const ft = main.querySelector('#rekapTindakanTahun');
     const fb = main.querySelector('#rekapTindakanBulan');
-    const load = () => loadRekapTindakan(main, fd.value, fb.value);
+    const load = () => loadRekapTindakan(main, fd.value, fb.value, ft.value);
     fd.addEventListener('change', load);
+    ft.addEventListener('change', load);
     fb.addEventListener('change', load);
     load();
   });
 }
 
-async function loadRekapTindakan(main, nipFilter, bulanFilter) {
+async function loadRekapTindakan(main, nipFilter, bulanFilter, tahunFilter) {
   const container = main.querySelector('#rekapTindakanContainer');
   try {
     let data = await api('/gaji/slip');
 
     if (nipFilter) data = data.filter(d => d.nm_dokter === nipFilter);
+    if (tahunFilter) data = data.filter(d => d.tahun === tahunFilter);
     if (bulanFilter) data = data.filter(d => d.bulan === bulanFilter);
 
 

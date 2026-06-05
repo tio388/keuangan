@@ -53,11 +53,15 @@ router.post('/upload', adminOnly, upload.single('file'), (req, res) => {
     // Kumpulkan periode unik dari file untuk override
     const filePeriodes = new Set();
     const mappedRows = rows.map(row => {
+      const rawBulan = row.bulan || '';
+      const bulanParts = rawBulan.split(' ');
+      const bulanName = bulanParts.length > 1 ? bulanParts.slice(0, -1).join(' ') : rawBulan;
+      const guessTahun = bulanParts.length > 1 ? bulanParts[bulanParts.length - 1] : '';
       const mapped = {
         nip: row.nip || '',
         nm_dokter: row.nm_dokter || row.nama_dokter || '',
-        bulan: row.bulan || '',
-        tahun: row.tahun || (row.bulan || '').split(' ').pop() || '',
+        bulan: bulanName,
+        tahun: row.tahun || (/^\d{4}$/.test(guessTahun) ? guessTahun : ''),
         tanggal: row.tanggal || row.tgl || row.keluar || '',
         poliklinik: row.poliklinik || '',
         pasien: row.pasien || row.jumlah_pasien || row.total_pasien || '',
@@ -255,6 +259,15 @@ router.get('/tindakan-list', (req, res) => {
   const db = getDb();
   const list = db.prepare("SELECT DISTINCT tindakan FROM gaji WHERE tindakan IS NOT NULL AND tindakan != '' ORDER BY tindakan ASC").all();
   res.json(list.map(r => r.tindakan));
+});
+
+router.delete('/:id', adminOnly, (req, res) => {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM gaji WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) {
+    return res.status(404).json({ error: 'Data gaji tidak ditemukan' });
+  }
+  res.json({ message: 'Data gaji berhasil dihapus' });
 });
 
 module.exports = router;
