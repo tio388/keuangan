@@ -928,53 +928,47 @@ async function loadSlipRecap(main, nip, bulan, tahun) {
 
     const groups = {};
     for (const d of data) {
-      const poli = (d.poliklinik || '').trim() || '-';
       const tKey = d.nm_tindakan;
-      if (!groups[poli]) groups[poli] = {};
-      if (!groups[poli][tKey]) groups[poli][tKey] = {};
+      if (!groups[tKey]) groups[tKey] = { polikliniks: new Set() };
       const payment = String(d.pembayaran || '').toLowerCase().includes('bpjs') ? 'BPJS KESEHATAN' : 'UMUM';
-      if (!groups[poli][tKey][payment]) groups[poli][tKey][payment] = { tarif: Number(d.tarif), jumlah: 0 };
-      groups[poli][tKey][payment].jumlah++;
+      if (!groups[tKey][payment]) groups[tKey][payment] = { tarif: Number(d.tarif), jumlah: 0 };
+      groups[tKey][payment].jumlah++;
+      if (d.poliklinik) groups[tKey].polikliniks.add(d.poliklinik);
     }
 
     let grandTotal = 0;
     let no = 0;
     let rows = '';
 
-    const sortedPolis = Object.keys(groups).sort();
-    for (const poli of sortedPolis) {
-      const tindakans = groups[poli];
-      const sortedTindakans = Object.keys(tindakans).sort();
+    for (const [tindakan, grp] of Object.entries(groups)) {
+      no++;
+      let tindakanTotal = 0;
+      const perawatan = [...grp.polikliniks].filter(Boolean).join(', ') || '-';
 
-      for (const tindakan of sortedTindakans) {
-        no++;
-        let tindakanTotal = 0;
-        const grp = tindakans[tindakan];
+      rows += `<tr class="tindakan-title">
+        <td>${no}</td>
+        <td><strong>${sanitize(tindakan)}</strong></td>
+        <td>${sanitize(perawatan)}</td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>`;
 
-        rows += `<tr class="tindakan-title">
-          <td>${no}</td>
-          <td><strong>${sanitize(tindakan)}</strong></td>
-          <td>${sanitize(poli)}</td>
+      for (const [payment, info] of Object.entries(grp)) {
+        if (payment === 'polikliniks') continue;
+        const subtotal = info.tarif * info.jumlah;
+        tindakanTotal += subtotal;
+        rows += `<tr class="tindakan-sub">
           <td></td>
+          <td style="padding-left:32px">${sanitize(payment)}</td>
           <td></td>
-          <td></td>
+          <td>Rp ${info.tarif.toLocaleString()}</td>
+          <td>${info.jumlah}</td>
+          <td class="value">Rp ${subtotal.toLocaleString()}</td>
         </tr>`;
-
-        for (const [payment, info] of Object.entries(grp)) {
-          const subtotal = info.tarif * info.jumlah;
-          tindakanTotal += subtotal;
-          rows += `<tr class="tindakan-sub">
-            <td></td>
-            <td style="padding-left:32px">${sanitize(payment)}</td>
-            <td></td>
-            <td>Rp ${info.tarif.toLocaleString()}</td>
-            <td>${info.jumlah}</td>
-            <td class="value">Rp ${subtotal.toLocaleString()}</td>
-          </tr>`;
-        }
-
-        grandTotal += tindakanTotal;
       }
+
+      grandTotal += tindakanTotal;
     }
 
     let summaryCards = '';
