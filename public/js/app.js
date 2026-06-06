@@ -919,7 +919,7 @@ async function loadSlipRecap(main, nip, bulan, tahun) {
     data = data.filter(d => d.nip === nip);
     if (tahun) data = data.filter(d => d.tahun === tahun);
     if (bulan) data = data.filter(d => d.bulan === bulan);
-    data = data.filter(d => d.nm_tindakan && Number(d.tarif) > 0);
+    data = data.filter(d => d.nm_tindakan && Number(d.tarif) > 0 && Number(d.pending) !== 1);
 
     if (data.length === 0) {
       container.innerHTML = '<div class="empty-state"><div class="icon">📄</div><h3>Belum ada data tindakan</h3></div>';
